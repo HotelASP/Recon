@@ -1,0 +1,2 @@
+hackthissite.org
+scanme.nmap.org

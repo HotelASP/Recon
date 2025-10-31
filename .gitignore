@@ -1,0 +1,12 @@
+# system
+*.swp
+*~
+.vscode/
+.venv/
+__pycache__/
+
+# outputs and credentials
+out/
+*.log
+api-keys.yaml
+/etc/theHarvester/api-keys.yaml
