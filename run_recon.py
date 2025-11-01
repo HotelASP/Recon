@@ -186,7 +186,7 @@ def warn_privileges(tool: str, use_sudo: bool) -> None:
     _PRIVILEGE_WARNINGS.add(tool)
     echo(
         f"[!] {tool} typically requires elevated privileges for raw socket scans. "
-        "Re-run with --sudo or as root if the command fails with permission errors.",
+        "Re-run the script with sudo or as root if the command fails with permission errors.",
         essential=True,
     )
 
@@ -205,7 +205,7 @@ def ensure_writable_directory(path: Path) -> None:
     if not os.access(path, os.W_OK | os.X_OK):
         raise SystemExit(
             f"Directory '{path}' is not writable. Update its ownership/permissions "
-            "or rerun the script with --sudo."
+            "or rerun the script with elevated privileges."
         )
 
     try:
@@ -213,8 +213,8 @@ def ensure_writable_directory(path: Path) -> None:
             pass
     except PermissionError as exc:
         raise SystemExit(
-            f"Unable to write to directory '{path}': {exc}. Fix permissions or use "
-            "--sudo to continue."
+            f"Unable to write to directory '{path}': {exc}. Fix permissions or run the "
+            "script with elevated privileges to continue."
         ) from exc
 
 
@@ -329,9 +329,20 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--sudo",
-        action="store_true",
-        help="Prefix network scanners with sudo when available.",
+        "--targets",
+        action="append",
+        nargs="+",
+        metavar="TARGET",
+        help=(
+            "One or more targets (hostnames, IP addresses, or CIDR ranges) to scan. "
+            "Entries may be comma-separated and the option can be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--targets-file",
+        type=Path,
+        metavar="FILE",
+        help="Read additional targets from FILE (one per line).",
     )
     parser.add_argument(
         "--silent",
@@ -340,6 +351,19 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
 
     args = parser.parse_args(argv)
+
+    raw_targets: List[str] = []
+    if args.targets:
+        for group in args.targets:
+            for entry in group:
+                for part in entry.split(","):
+                    cleaned = part.strip()
+                    if cleaned:
+                        raw_targets.append(cleaned)
+    args.targets = raw_targets
+
+    if args.targets_file is not None:
+        args.targets_file = args.targets_file.expanduser()
 
     if args.harvester_source:
         sources: List[str] = []
@@ -426,11 +450,13 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
     return PortSelection(description, masscan_args, nmap_args, smrib_args)
 
 
-def load_targets(path: Path) -> List[str]:
-    # Load the reconnaissance targets from disk. If the operator has not
-    # prepared a list yet, create a starter file that points at
-    # ``hackthissite.org`` so the workflow can run immediately.
+def load_targets(path: Path, *, create_default: bool) -> List[str]:
+    # Load the reconnaissance targets from disk. When ``create_default`` is
+    # enabled and the file is missing, populate it with ``hackthissite.org`` so
+    # the workflow has an immediate starting point.
     if not path.exists():
+        if not create_default:
+            raise SystemExit(f"Targets file not found: {path}")
         path.write_text("hackthissite.org\n", encoding="utf-8")
         echo(f"[+] Created default targets file at {path} with hackthissite.org", essential=True)
 
@@ -454,7 +480,7 @@ def load_targets(path: Path) -> List[str]:
         targets.append(stripped)
 
     if not targets:
-        raise SystemExit("No targets defined in targets.txt")
+        raise SystemExit(f"No targets defined in {path}")
 
     return targets
 
@@ -1088,14 +1114,42 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     echo("[+] Starting reconnaissance workflow", essential=True)
     port_selection = build_port_selection(args)
-    targets = load_targets(TARGETS_FILE)
-    echo(f"[+] Loaded {len(targets)} target(s) from {TARGETS_FILE}", essential=True)
-    if targets:
-        echo("    Target list (in scanning order):", essential=True)
-        for index, target in enumerate(targets, start=1):
-            echo(f"      {index}. {target}", essential=True)
+    cli_targets = list(args.targets)
+    file_targets: List[str] = []
+    file_origin: Optional[Path] = None
+    if args.targets_file:
+        candidate = args.targets_file
+        if not candidate.is_absolute():
+            candidate = Path.cwd() / candidate
+        file_origin = candidate.resolve(strict=False)
+        file_targets = load_targets(file_origin, create_default=False)
+    elif not cli_targets:
+        file_origin = TARGETS_FILE
+        file_targets = load_targets(file_origin, create_default=True)
+
+    targets: List[str] = []
+    for entry in cli_targets + file_targets:
+        if entry not in targets:
+            targets.append(entry)
+
+    if not targets:
+        raise SystemExit("No reconnaissance targets provided. Use --targets or --targets-file.")
+
+    echo(f"[+] Loaded {len(targets)} target(s)", essential=True)
+    echo("    Target list (in scanning order):", essential=True)
+    for index, target in enumerate(targets, start=1):
+        echo(f"      {index}. {target}", essential=True)
+
+    if cli_targets and file_origin:
         echo(
-            "    Each entry originates from targets.txt; edit that file to adjust the scope.",
+            f"    Targets supplied via --targets and from {file_origin}.",
+            essential=True,
+        )
+    elif cli_targets:
+        echo("    Targets supplied directly via --targets.", essential=True)
+    elif file_origin:
+        echo(
+            f"    Each entry originates from {file_origin}; edit that file to adjust the scope.",
             essential=True,
         )
 
@@ -1108,6 +1162,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     masscan_results: Mapping[str, Set[int]] = {}
     smrib_results: Mapping[str, Set[int]] = {}
     nmap_results: Mapping[str, Set[int]] = {}
+    use_sudo = False
 
     if args.scanner == "masscan":
         masscan_results = run_masscan(
@@ -1115,12 +1170,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             port_selection,
             args.masscan_rate,
             args.masscan_status_interval,
-            args.sudo,
+            use_sudo,
         )
     elif args.scanner == "smrib":
-        smrib_results = run_smrib(targets, port_selection, args.smrib_path, args.smrib_extra, args.sudo)
+        smrib_results = run_smrib(targets, port_selection, args.smrib_path, args.smrib_extra, use_sudo)
     else:
-        nmap_results = run_nmap_discovery(targets, port_selection, args.sudo)
+        nmap_results = run_nmap_discovery(targets, port_selection, use_sudo)
 
     discovered_hosts = merge_discovered_hosts(
         targets,
@@ -1132,7 +1187,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     display_discovered_hosts(discovered_hosts)
 
-    run_nmap_fingerprinting(discovered_hosts, args.sudo)
+    run_nmap_fingerprinting(discovered_hosts, use_sudo)
 
     domains = extract_domains_from_nmap()
     if domains:
