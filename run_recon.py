@@ -824,6 +824,28 @@ def run_nmap_fingerprinting(
         run_command(prefix_command(cmd, use_sudo), description=description)
 
 
+def _registered_domain(candidate: str) -> Optional[str]:
+    """Return the registrable domain component of *candidate* if possible."""
+
+    if not candidate:
+        return None
+
+    candidate = candidate.strip().lower()
+    if not candidate:
+        return None
+
+    try:
+        ipaddress.ip_address(candidate)
+        return None
+    except ValueError:
+        pass
+
+    parts = [part for part in candidate.split(".") if part]
+    if len(parts) < 2:
+        return None
+    return ".".join(parts[-2:])
+
+
 def extract_domains_from_nmap() -> Set[str]:
     # Parse the Nmap XML output to collect second-level domains that can be fed
     # into theHarvester for OSINT enrichment.
@@ -831,16 +853,19 @@ def extract_domains_from_nmap() -> Set[str]:
     domains: Set[str] = set()
     for data in results.values():
         for hostname in data.get("hostnames", []):
-            try:
-                ipaddress.ip_address(hostname)
-                continue
-            except ValueError:
-                pass
-            parts = hostname.lower().strip().split(".")
-            parts = [part for part in parts if part]
-            if len(parts) < 2:
-                continue
-            domain = ".".join(parts[-2:])
+            domain = _registered_domain(hostname)
+            if domain:
+                domains.add(domain)
+    return domains
+
+
+def extract_domains_from_targets(targets: Iterable[str]) -> Set[str]:
+    """Derive registrable domains directly from the requested *targets*."""
+
+    domains: Set[str] = set()
+    for target in targets:
+        domain = _registered_domain(target)
+        if domain:
             domains.add(domain)
     return domains
 
@@ -1190,6 +1215,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     run_nmap_fingerprinting(discovered_hosts, use_sudo)
 
     domains = extract_domains_from_nmap()
+    domains.update(extract_domains_from_targets(targets))
     if domains:
         run_harvester(domains, args)
     else:
