@@ -45,6 +45,7 @@ python3 run_recon.py [options]
 | `--port-range RANGE` | Explicit port range or comma-separated list, e.g. `1-1024,3389`. Overrides `--top-ports` and is mutually exclusive with `--ports`. |
 | `--ports LIST` | Comma-separated list of TCP ports to scan and fingerprint (overrides discovery results and disables other port selectors). |
 | `--masscan-rate RATE` | Packet rate for Masscan when it is the chosen scanner (default: `1000`). |
+| `--masscan-status-interval SECONDS` | Seconds between Masscan status updates (use `0` to silence the progress lines). |
 | `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `$SMRIB_PATH` env var or `~/Desktop/RT/smrib.py`). |
 | `--smrib-extra ...` | Additional arguments appended to the `smrib.py` command. Everything after this flag is forwarded. |
 | `--harvester-sources SOURCES` | Comma-separated data sources for theHarvester (default: `all`). |
