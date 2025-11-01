@@ -1,6 +1,6 @@
-# Nmap 7.95 scan initiated Sat Nov  1 15:54:22 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110
+# Nmap 7.95 scan initiated Sat Nov  1 16:09:26 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110
 Nmap scan report for 110.248.153.160.host.secureserver.net (160.153.248.110)
-Host is up (0.021s latency).
+Host is up (0.022s latency).
 
 PORT   STATE SERVICE VERSION
 80/tcp open  http    Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)
@@ -15,4 +15,4 @@ No exact OS matches for host (test conditions non-ideal).
 Service Info: OS: Windows; CPE: cpe:/o:microsoft:windows
 
 OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
-# Nmap done at Sat Nov  1 15:54:38 2025 -- 1 IP address (1 host up) scanned in 15.61 seconds
+# Nmap done at Sat Nov  1 16:09:42 2025 -- 1 IP address (1 host up) scanned in 15.97 seconds

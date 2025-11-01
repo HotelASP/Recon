@@ -1,4 +1,4 @@
-# Nmap 7.95 scan initiated Sat Nov  1 15:54:22 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110
+# Nmap 7.95 scan initiated Sat Nov  1 16:09:26 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110
 Host: 160.153.248.110 (110.248.153.160.host.secureserver.net)	Status: Up
-Host: 160.153.248.110 (110.248.153.160.host.secureserver.net)	Ports: 80/open/tcp//http//Microsoft HTTPAPI httpd 2.0 (SSDP|UPnP)/	Seq Index: 15	IP ID Seq: Incremental
-# Nmap done at Sat Nov  1 15:54:38 2025 -- 1 IP address (1 host up) scanned in 15.61 seconds
+Host: 160.153.248.110 (110.248.153.160.host.secureserver.net)	Ports: 80/open/tcp//http//Microsoft HTTPAPI httpd 2.0 (SSDP|UPnP)/	Seq Index: 17	IP ID Seq: Incremental
+# Nmap done at Sat Nov  1 16:09:42 2025 -- 1 IP address (1 host up) scanned in 15.97 seconds
