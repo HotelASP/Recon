@@ -1,2 +1,0 @@
-ip,hostnames,os,os_accuracy,open_ports,services,related_domains
-137.74.187.102,hackthissite.org,3Com 4500G switch,92,80;443,80/tcp http;443/tcp https,

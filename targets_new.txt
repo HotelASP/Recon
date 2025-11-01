@@ -1,0 +1,6 @@
+110.248.153.160.host.secureserver.net 21,80
+160.153.248.110 21,80
+192.124.249.38
+hotelasp.com
+secure.hotelasp.com
+secureserver.net
