@@ -79,6 +79,37 @@ _SILENT_MODE = False
 _LOG_FILE: Optional[TextIO] = None
 
 
+def _remove_path(path: Path) -> None:
+    """Delete a file or directory, ignoring missing-path errors."""
+
+    try:
+        if not path.exists():
+            return
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+        else:
+            shutil.rmtree(path)
+    except FileNotFoundError:
+        return
+
+
+def reset_output_tree() -> None:
+    """Clear artefacts from previous runs to avoid cross-run contamination."""
+
+    for artefact in (
+        MASSCAN_JSON,
+        SMRIB_JSON,
+        INVENTORY_JSON,
+        INVENTORY_CSV,
+        REPORT_PATH,
+        LOG_PATH,
+    ):
+        _remove_path(artefact)
+
+    for directory in (DISCOVERY_DIR, NMAP_DIR, HARVESTER_DIR, EYEWITNESS_DIR):
+        _remove_path(directory)
+
+
 def _ensure_log_file() -> TextIO:
     """Return an open handle to the workflow log file, creating it on demand."""
 
@@ -287,6 +318,15 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=int,
         default=4,
         help="Number of EyeWitness browser threads (default: 4).",
+    )
+    parser.add_argument(
+        "--preserve-output",
+        action="store_true",
+        help=(
+            "Keep existing files under out/ instead of wiping them at the start "
+            "of a run. When enabled, results from previous executions may bleed "
+            "into the current inventory."
+        ),
     )
     parser.add_argument(
         "--sudo",
@@ -1037,6 +1077,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     global _SILENT_MODE
     _SILENT_MODE = args.silent
+
+    if not args.preserve_output:
+        reset_output_tree()
+    else:
+        echo(
+            "[!] Preserving existing output files – prior results may appear in the current run.",
+            essential=True,
+        )
 
     echo("[+] Starting reconnaissance workflow", essential=True)
     port_selection = build_port_selection(args)

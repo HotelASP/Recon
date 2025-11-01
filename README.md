@@ -54,6 +54,7 @@ python3 run_recon.py [options]
 | `--skip-eyewitness` | Skip the EyeWitness screenshot stage entirely. |
 | `--eyewitness-timeout SECONDS` | HTTP request timeout used by EyeWitness (default: `10`). |
 | `--eyewitness-threads N` | Number of parallel EyeWitness browser threads (default: `4`). |
+| `--preserve-output` | Skip the automatic cleanup of `out/` so previous artefacts remain available. |
 | `--sudo` | Prefix scanner commands with `sudo` when the binary is available. |
 
 Passing more than one of `--top-ports`, `--port-range`, or `--ports` results in
@@ -93,8 +94,9 @@ that context is useful:
 - `out/inventory.json` & `out/inventory.csv` – Aggregated host/service inventory.
 - `out/report.md` – Human-readable summary and screenshot gallery.
 
-Each run reuses the same directory structure, so remove or archive previous
-results if you want a clean slate.
+The script wipes the directories at the start of each run to avoid mixing
+artefacts from different sessions. Use `--preserve-output` if you prefer to keep
+older data (be aware that aggregation will then include historic results).
 
 ## Tips
 
