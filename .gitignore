@@ -9,3 +9,4 @@ __pycache__/
 *.log
 api-keys.yaml
 /etc/theHarvester/api-keys.yaml
+out/
