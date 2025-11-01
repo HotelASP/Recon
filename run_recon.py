@@ -395,7 +395,19 @@ def load_targets(path: Path) -> List[str]:
     targets: List[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped:
+            continue
+
+        # Allow operators to annotate entries with comments by stripping the
+        # fragment that follows ``#``.  Lines that only contain a comment are
+        # ignored entirely.
+        if "#" in stripped:
+            stripped, _, _ = stripped.partition("#")
+            stripped = stripped.strip()
+            if not stripped:
+                continue
+
+        if stripped.startswith("#"):
             continue
         targets.append(stripped)
 

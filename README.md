@@ -27,8 +27,10 @@ module performs the final data merge and is invoked automatically.
 ## Targets
 
 Populate [`targets.txt`](./targets.txt) with one host, IP address, or network per
-line. Blank lines and comments starting with `#` are ignored. The script aborts if
-no valid targets are present.
+line. Blank lines and comments starting with `#` are ignored. Inline annotations
+such as `example.com # staging box` are supported—the portion after `#` is
+discarded before the target list is processed. The script aborts if no valid
+targets are present.
 
 ## Usage
 
@@ -78,7 +80,9 @@ an error. When none is supplied, the script scans the top 100 ports.
 
 ## Output Layout
 
-All artefacts live under [`out/`](./out) (created on demand):
+All artefacts live under [`out/`](./out) (created on demand). The directory is
+now tracked by Git so results from previous runs can be versioned or shared when
+that context is useful:
 
 - `out/discovery/` – Raw discovery outputs when Nmap is used for stage one.
 - `out/nmap/` – Nmap XML/normal/grepable files for the fingerprinting stage.

@@ -1,3 +1,4 @@
 hackthissite.org
 #scanme.nmap.org
 #10.0.5.5
+#example.com # annotate entries like this to leave operator notes
