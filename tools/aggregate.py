@@ -39,7 +39,8 @@ import os
 import re
 import shlex
 import xml.etree.ElementTree as ET
-from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional, Sequence
 
 
 def parse_masscan_json(path: str) -> Dict[str, Dict[str, List[int]]]:
@@ -347,6 +348,47 @@ class HarvesterFinding(NamedTuple):
     ip: Optional[str]
 
 
+@dataclass
+class HarvesterDomainResult:
+    """Structured representation of theHarvester artefacts for one domain."""
+
+    domain: str
+    findings: List[HarvesterFinding] = field(default_factory=list)
+    sections: Dict[str, List[str]] = field(default_factory=dict)
+
+    def add_section(self, name: str, values: Iterable[str]) -> None:
+        canonical = _canonical_section_name(name)
+        if not canonical:
+            return
+        bucket = self.sections.setdefault(canonical, [])
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            cleaned = value.strip()
+            if not cleaned or cleaned in bucket:
+                continue
+            bucket.append(cleaned)
+
+    def sort_contents(self) -> None:
+        self.findings = sorted(self.findings, key=lambda item: item.hostname)
+        for key, items in list(self.sections.items()):
+            unique = []
+            for item in items:
+                if item not in unique:
+                    unique.append(item)
+            if unique:
+                self.sections[key] = sorted(unique)
+            else:
+                del self.sections[key]
+
+
+class InventoryBundle(NamedTuple):
+    """Aggregate of host inventory and theHarvester domain summaries."""
+
+    hosts: Dict[str, Dict[str, Optional[Iterable]]]
+    harvester_domains: List[Mapping[str, object]]
+
+
 HARVESTER_DOMAIN_KEYS: Sequence[str] = (
     "domain",
     "target",
@@ -363,6 +405,114 @@ HARVESTER_HOSTNAME_KEYS: Sequence[str] = (
     "target",
     "fqdn",
 )
+
+HARVESTER_SECTION_ALIASES: Dict[str, Sequence[str]] = {
+    "hosts": ("hosts", "host", "hostnames", "hosts found"),
+    "emails": ("emails", "email", "email addresses", "email address"),
+    "ips": ("ips", "ip", "ip addresses", "ip address"),
+    "asns": ("asns", "asn", "asn numbers", "as numbers"),
+    "interesting_urls": ("interesting urls", "interesting url", "urls", "url"),
+    "linkedin_users": ("linkedin users", "linkedin user", "linkedin people", "people"),
+    "linkedin_links": ("linkedin links", "linkedin link", "linkedin profiles", "linkedin profile"),
+}
+
+HARVESTER_IGNORED_SECTIONS: Sequence[str] = (
+    "cmd",
+    "command",
+    "start",
+    "end",
+    "timestamp",
+    "time started",
+    "time finished",
+    "sources",
+    "source",
+    "options",
+    "config",
+)
+
+
+def _sanitise_label(label: str) -> str:
+    cleaned = re.sub(r"[^0-9A-Za-z]+", " ", str(label)).strip().lower()
+    return re.sub(r"\\s+", " ", cleaned)
+
+
+def _canonical_section_name(label: str) -> Optional[str]:
+    sanitized = _sanitise_label(label)
+    if not sanitized:
+        return None
+    if sanitized in HARVESTER_IGNORED_SECTIONS:
+        return None
+    for canonical, aliases in HARVESTER_SECTION_ALIASES.items():
+        if sanitized in aliases:
+            return canonical
+    return sanitized.replace(" ", "_")
+
+
+def _normalise_section_values(value: Any) -> List[str]:
+    results: List[str] = []
+    if isinstance(value, bool) or value is None:
+        return results
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned:
+            results.append(cleaned)
+    elif isinstance(value, (int, float)):
+        results.append(str(value))
+    elif isinstance(value, dict):
+        for element in value.values():
+            results.extend(_normalise_section_values(element))
+    elif isinstance(value, (list, tuple, set)):
+        for element in value:
+            results.extend(_normalise_section_values(element))
+    return results
+
+
+def _collect_sections_from_json(data: Any, result: HarvesterDomainResult) -> None:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            canonical = _canonical_section_name(key)
+            if canonical:
+                values = _normalise_section_values(value)
+                if values:
+                    result.add_section(canonical, values)
+            if isinstance(value, (dict, list, tuple, set)):
+                _collect_sections_from_json(value, result)
+    elif isinstance(data, (list, tuple, set)):
+        for item in data:
+            _collect_sections_from_json(item, result)
+
+
+_TEXT_SECTION_HEADER = re.compile(r"^\\[\\*\\]\\s*(?P<section>[^:]+?)(?:\\s+found)?\\s*:?\\s*$", re.IGNORECASE)
+_TEXT_SECTION_ITEM = re.compile(r"^\\[\\+\\]\\s*(?P<value>.+?)\\s*$")
+
+
+def _parse_text_sections(content: str, result: HarvesterDomainResult) -> None:
+    current_section: Optional[str] = None
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            current_section = None
+            continue
+        header_match = _TEXT_SECTION_HEADER.match(line)
+        if header_match:
+            section_label = header_match.group("section")
+            if re.search(r"\\bno\\b", section_label, flags=re.IGNORECASE):
+                current_section = None
+                continue
+            canonical = _canonical_section_name(section_label)
+            current_section = canonical
+            continue
+        item_match = _TEXT_SECTION_ITEM.match(line)
+        if item_match and current_section:
+            value = item_match.group("value").strip()
+            if value:
+                result.add_section(current_section, [value])
+            continue
+        if current_section and ":" in line:
+            _, _, remainder = line.partition(":")
+            remainder = remainder.strip()
+            if remainder:
+                result.add_section(current_section, [remainder])
 
 
 def _looks_like_ip(value: str) -> bool:
@@ -494,10 +644,10 @@ def _extract_domain_from_metadata(metadata: object, fallback: str) -> str:
     return fallback.lower()
 
 
-def parse_harvester_dir(harv_dir: str) -> Dict[str, List[HarvesterFinding]]:
+def parse_harvester_dir(harv_dir: str) -> Dict[str, HarvesterDomainResult]:
     """Read theHarvester outputs and associate domains with discovered hosts."""
 
-    mapping: Dict[str, List[HarvesterFinding]] = {}
+    mapping: Dict[str, HarvesterDomainResult] = {}
 
     if not os.path.isdir(harv_dir):
         return mapping
@@ -508,7 +658,6 @@ def parse_harvester_dir(harv_dir: str) -> Dict[str, List[HarvesterFinding]]:
         if os.path.isdir(path):
             continue
 
-        findings: List[HarvesterFinding] = []
         domain_hint = os.path.splitext(fname)[0].lower()
 
         try:
@@ -517,16 +666,15 @@ def parse_harvester_dir(harv_dir: str) -> Dict[str, List[HarvesterFinding]]:
         except Exception:
             continue
 
-        domain_name = domain_hint
+        domain_result = HarvesterDomainResult(domain=domain_hint)
 
-        # Prefer parsing JSON when available as it contains structured data.
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
             data = None
 
         if isinstance(data, dict):
-            domain_name = _extract_domain_from_metadata(data, domain_hint)
+            domain_result.domain = _extract_domain_from_metadata(data, domain_hint)
 
             raw_hosts: Sequence[object] = []
             if isinstance(data.get("hosts"), list):
@@ -534,8 +682,6 @@ def parse_harvester_dir(harv_dir: str) -> Dict[str, List[HarvesterFinding]]:
             elif isinstance(data.get("hosts"), dict):
                 raw_hosts = list(data["hosts"].values())
 
-            # Some outputs (e.g., JSON exported from the UI) nest host entries
-            # inside a ``data`` key.
             if not raw_hosts and isinstance(data.get("data"), dict):
                 nested_hosts = data["data"].get("hosts")
                 if isinstance(nested_hosts, list):
@@ -544,41 +690,44 @@ def parse_harvester_dir(harv_dir: str) -> Dict[str, List[HarvesterFinding]]:
             for entry in raw_hosts:
                 finding = _extract_hostname_and_ip(entry)
                 if finding:
-                    findings.append(finding)
+                    domain_result.findings.append(finding)
 
-            # theHarvester may expose additional hostnames under other keys
-            # depending on the selected modules.  Traverse the full JSON
-            # structure to discover any remaining host-like artefacts.
-            stack = [data]
+            stack: List[object] = [data]
             while stack:
                 current = stack.pop()
                 finding = _extract_hostname_and_ip(current)
                 if finding:
-                    findings.append(finding)
+                    domain_result.findings.append(finding)
 
                 if isinstance(current, dict):
                     stack.extend(current.values())
                 elif isinstance(current, list):
                     stack.extend(current)
 
-        if not findings:
-            # Fallback to the previous line-by-line heuristic when JSON parsing
-            # either failed or did not reveal any hostnames.
+            _collect_sections_from_json(data, domain_result)
+
+        if not domain_result.findings:
             for line in content.splitlines():
                 finding = _extract_hostname_and_ip(line)
                 if finding:
-                    findings.append(finding)
+                    domain_result.findings.append(finding)
 
-        if not findings:
-            continue
+        _parse_text_sections(content, domain_result)
 
         deduped: Dict[str, HarvesterFinding] = {}
-        for finding in findings:
+        for finding in domain_result.findings:
             existing = deduped.get(finding.hostname)
             if existing is None or (existing.ip is None and finding.ip):
                 deduped[finding.hostname] = finding
 
-        mapping[domain_name] = sorted(deduped.values(), key=lambda item: item.hostname)
+        domain_result.findings = list(deduped.values())
+        domain_result.sort_contents()
+
+        has_sections = any(values for values in domain_result.sections.values())
+        if not domain_result.findings and not has_sections:
+            continue
+
+        mapping[domain_result.domain] = domain_result
 
     return mapping
 
@@ -587,8 +736,8 @@ def build_inventory(
     nmap_inv: Dict[str, Dict[str, Iterable[Dict[str, Optional[str]]]]],
     masscan_inv: Dict[str, Dict[str, List[int]]],
     smrib_inv: Dict[str, Dict[str, List[int]]],
-    harv_map: Dict[str, List[HarvesterFinding]],
-) -> Dict[str, Dict[str, Optional[Iterable]]]:
+    harv_map: Dict[str, HarvesterDomainResult],
+) -> InventoryBundle:
     """Merge the tool-specific outputs into a unified inventory structure."""
 
     inventory: Dict[str, Dict[str, Optional[Iterable]]] = {}
@@ -598,6 +747,7 @@ def build_inventory(
     for ip, data in nmap_inv.items():
         inventory[ip] = {
             "ip": ip,
+            "entry_type": "host",
             "open_ports": sorted(
                 {
                     port_entry["port"]
@@ -636,6 +786,7 @@ def build_inventory(
         if ip not in inventory:
             inventory[ip] = {
                 "ip": ip,
+                "entry_type": "host",
                 "open_ports": masscan_data.get("masscan_ports", []),
                 "services": [],
                 "hostnames": [],
@@ -655,6 +806,7 @@ def build_inventory(
         if ip not in inventory:
             inventory[ip] = {
                 "ip": ip,
+                "entry_type": "host",
                 "open_ports": smrib_data.get("smrib_ports", []),
                 "services": [],
                 "hostnames": [],
@@ -668,61 +820,150 @@ def build_inventory(
                 | set(smrib_data.get("smrib_ports", []))
             )
 
-    # theHarvester focuses on domain names; use its discoveries to supplement
-    # hostnames for every IP address.
-    for domain, findings in harv_map.items():
-        domain_lower = domain.lower()
+    domain_summaries: List[Mapping[str, object]] = []
+
+    for domain_key in sorted(harv_map.keys()):
+        result = harv_map[domain_key]
+        domain_lower = result.domain.lower()
         domain_suffix = f".{domain_lower}"
 
-        for finding in findings:
-            targets: List[str] = []
+        host_records = [
+            {"hostname": finding.hostname, "ip": finding.ip}
+            for finding in result.findings
+        ]
+        hostnames_for_domain = [record["hostname"] for record in host_records]
+        ips_for_domain = [record["ip"] for record in host_records if record["ip"]]
+        section_snapshot = {
+            key: list(values)
+            for key, values in result.sections.items()
+        }
+        if hostnames_for_domain:
+            section_snapshot.setdefault("hosts", [])
+            section_snapshot["hosts"].extend(hostnames_for_domain)
+        if ips_for_domain:
+            section_snapshot.setdefault("ips", [])
+            section_snapshot["ips"].extend(ips_for_domain)
 
-            if finding.ip and finding.ip in inventory:
-                targets = [finding.ip]
-            else:
-                for ip, entry in inventory.items():
-                    hostnames = [name.lower() for name in entry.get("hostnames", [])]
-                    if any(
-                        hn == domain_lower or hn.endswith(domain_suffix)
-                        for hn in hostnames
-                    ):
-                        targets.append(ip)
+        domain_summary = {
+            "domain": domain_lower,
+            "hosts": sorted({name for name in hostnames_for_domain if name}),
+            "ips": sorted({ip for ip in ips_for_domain if ip}),
+            "host_records": host_records,
+            "sections": {
+                key: sorted({value for value in values if value})
+                for key, values in section_snapshot.items()
+            },
+        }
 
-            for target_ip in targets:
-                entry = inventory[target_ip]
-                if finding.hostname not in entry["hostnames"]:
-                    entry["hostnames"].append(finding.hostname)
-                domain_label = domain_lower
-                if domain_label not in entry["related_domains"]:
-                    entry["related_domains"].append(domain_label)
+        if domain_summary["hosts"] or domain_summary["ips"] or domain_summary["sections"]:
+            domain_summaries.append(domain_summary)
 
-            if finding.ip and finding.ip in inventory:
-                rel_entry = inventory[finding.ip]
-                if domain_lower not in rel_entry["related_domains"]:
-                    rel_entry["related_domains"].append(domain_lower)
+        associated_ips = {
+            finding.ip
+            for finding in result.findings
+            if finding.ip and finding.ip in inventory
+        }
+
+        if not associated_ips:
+            candidate_hostnames = {finding.hostname.lower() for finding in result.findings}
+            for ip, entry in inventory.items():
+                existing = [name.lower() for name in entry.get("hostnames", [])]
+                if any(
+                    (
+                        hn == domain_lower
+                        or hn.endswith(domain_suffix)
+                        or hn in candidate_hostnames
+                    )
+                    for hn in existing
+                ):
+                    associated_ips.add(ip)
+
+        aggregated_sections = {
+            key: sorted({value for value in values if value})
+            for key, values in section_snapshot.items()
+        }
+
+        for target_ip in associated_ips:
+            entry = inventory[target_ip]
+            hostnames = entry.setdefault("hostnames", [])
+            for hostname in hostnames_for_domain:
+                if hostname and hostname not in hostnames:
+                    hostnames.append(hostname)
+            related = entry.setdefault("related_domains", [])
+            if domain_lower not in related:
+                related.append(domain_lower)
+
+            harv_entry = entry.setdefault("harvester", {})
+            domains_list = harv_entry.setdefault("domains", [])
+            if domain_lower not in domains_list:
+                domains_list.append(domain_lower)
+            for section_name, values in aggregated_sections.items():
+                dest = harv_entry.setdefault(section_name, [])
+                for value in values:
+                    if value not in dest:
+                        dest.append(value)
 
     for entry in inventory.values():
-        entry["hostnames"] = sorted(set(entry.get("hostnames", [])))
-        entry["related_domains"] = sorted(set(entry.get("related_domains", [])))
+        entry["hostnames"] = sorted({name for name in entry.get("hostnames", []) if name})
+        entry["related_domains"] = sorted(
+            {domain for domain in entry.get("related_domains", []) if domain}
+        )
+        harv_data = entry.get("harvester")
+        if isinstance(harv_data, dict):
+            for key, values in list(harv_data.items()):
+                if isinstance(values, list):
+                    harv_data[key] = sorted({value for value in values if value})
 
-    return inventory
+    return InventoryBundle(hosts=inventory, harvester_domains=domain_summaries)
 
 
-def export_json(inv: Dict[str, Dict[str, Optional[Iterable]]], outpath: str) -> None:
+def export_json(bundle: InventoryBundle, outpath: str) -> None:
     """Persist the inventory as JSON so downstream tooling can reuse it."""
 
+    def _sort_key(ip: str) -> tuple:
+        try:
+            return (0, ipaddress.ip_address(ip))
+        except ValueError:
+            return (1, ip)
+
+    hosts = [
+        bundle.hosts[ip]
+        for ip in sorted(bundle.hosts.keys(), key=_sort_key)
+    ]
+    payload: Dict[str, object] = {"hosts": hosts}
+    if bundle.harvester_domains:
+        payload["harvester_domains"] = bundle.harvester_domains
+
     with open(outpath, "w", encoding="utf-8") as file:
-        json.dump(list(inv.values()), file, indent=2)
+        json.dump(payload, file, indent=2)
 
 
-def export_csv(inv: Dict[str, Dict[str, Optional[Iterable]]], outpath: str) -> None:
+def export_csv(bundle: InventoryBundle, outpath: str) -> None:
     """Write a tabular view of the inventory that is easy to inspect manually."""
+
+    def _sort_key(ip: str) -> tuple:
+        try:
+            return (0, ipaddress.ip_address(ip))
+        except ValueError:
+            return (1, ip)
 
     with open(outpath, "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        writer.writerow(["ip", "hostnames", "os", "os_accuracy", "open_ports", "services", "related_domains"])
+        writer.writerow(
+            [
+                "ip",
+                "hostnames",
+                "os",
+                "os_accuracy",
+                "open_ports",
+                "services",
+                "related_domains",
+                "harvester_data",
+            ]
+        )
 
-        for ip, entry in inv.items():
+        for ip in sorted(bundle.hosts.keys(), key=_sort_key):
+            entry = bundle.hosts[ip]
             hostnames = ";".join(entry.get("hostnames", []))
             osname = entry.get("os") or ""
             os_accuracy = entry.get("os_accuracy") or ""
@@ -763,8 +1004,26 @@ def export_csv(inv: Dict[str, Dict[str, Optional[Iterable]]], outpath: str) -> N
 
             services = ";".join(service_descriptions)
             related_domains = ";".join(entry.get("related_domains", []))
+            harvester_blob = ""
+            harvester_data = entry.get("harvester")
+            if harvester_data:
+                try:
+                    harvester_blob = json.dumps(harvester_data, sort_keys=True)
+                except TypeError:
+                    harvester_blob = str(harvester_data)
 
-            writer.writerow([ip, hostnames, osname, os_accuracy, ports, services, related_domains])
+            writer.writerow(
+                [
+                    ip,
+                    hostnames,
+                    osname,
+                    os_accuracy,
+                    ports,
+                    services,
+                    related_domains,
+                    harvester_blob,
+                ]
+            )
 
 
 def main() -> None:
@@ -810,7 +1069,7 @@ def main() -> None:
     nmap_results = parse_nmap_dir(args.nmap_dir)
     harvester_results = parse_harvester_dir(args.harv_dir)
 
-    inventory = build_inventory(
+    bundle = build_inventory(
         nmap_results,
         masscan_results,
         smrib_results,
@@ -823,8 +1082,8 @@ def main() -> None:
     csv_parent = os.path.dirname(args.out_csv)
     if csv_parent and csv_parent != json_parent:
         os.makedirs(csv_parent, exist_ok=True)
-    export_json(inventory, args.out_json)
-    export_csv(inventory, args.out_csv)
+    export_json(bundle, args.out_json)
+    export_csv(bundle, args.out_csv)
 
     print(f"Wrote {args.out_json} and {args.out_csv}")
 
@@ -834,8 +1093,10 @@ def main() -> None:
         except ValueError:
             return (1, ip)
 
-    for ip in sorted(inventory, key=_sort_key):
-        ports = sorted({port for port in inventory[ip].get("open_ports", []) if port is not None})
+    for ip in sorted(bundle.hosts, key=_sort_key):
+        ports = sorted(
+            {port for port in bundle.hosts[ip].get("open_ports", []) if port is not None}
+        )
         if not ports:
             continue
         for port in ports:

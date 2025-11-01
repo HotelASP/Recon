@@ -59,6 +59,7 @@ REPORT_PATH = REPORT_DIR / "report.md"
 TARGETS_FILE = ROOT / "targets.txt"
 LOG_PATH = LOG_DIR / "recon.log"
 TARGETS_NEW_FILE = ROOT / "targets_new.txt"
+TARGETS_NOT_PROCESSED_FILE = ROOT / "targets-related-not-processed.txt"
 
 
 TOOL_SUMMARIES = {
@@ -114,6 +115,7 @@ def reset_output_tree() -> None:
         INVENTORY_CSV,
         REPORT_PATH,
         LOG_PATH,
+        TARGETS_NOT_PROCESSED_FILE,
     ):
         _remove_path(artefact)
 
@@ -1046,6 +1048,19 @@ def export_target_file(
     echo(f"[+] Exported {len(sorted_targets)} target(s) to {path}", essential=True)
 
 
+def export_not_processed_targets(entries: Iterable[str]) -> None:
+    values = sorted({entry.strip() for entry in entries if entry and entry.strip()})
+    if values:
+        with TARGETS_NOT_PROCESSED_FILE.open("w", encoding="utf-8") as file:
+            file.write("\n".join(values) + "\n")
+        echo(
+            f"[+] Logged {len(values)} target(s) ignored from OSINT in {TARGETS_NOT_PROCESSED_FILE}",
+            essential=True,
+        )
+    elif TARGETS_NOT_PROCESSED_FILE.exists():
+        TARGETS_NOT_PROCESSED_FILE.unlink()
+
+
 def _normalise_target(value: str) -> str:
     """Return a consistent identifier for tracking processed targets."""
 
@@ -1260,19 +1275,34 @@ def display_inventory_contents() -> None:
         return
 
     echo(f"[+] Final inventory from {INVENTORY_JSON}:", essential=True)
-    if not isinstance(parsed, list):
-        echo("    Inventory format unexpected – expected a list of hosts.", essential=True)
-        echo("    Raw JSON output follows:", essential=True)
+
+    hosts: List[Mapping[str, object]]
+    harvester_domains: Sequence[Mapping[str, object]] = []
+
+    if isinstance(parsed, dict):
+        raw_hosts = parsed.get("hosts")
+        if isinstance(raw_hosts, list):
+            hosts = raw_hosts
+        else:
+            echo("    Inventory format unexpected – missing 'hosts' list.", essential=True)
+            return
+        domains_section = parsed.get("harvester_domains")
+        if isinstance(domains_section, list):
+            harvester_domains = domains_section
+    elif isinstance(parsed, list):
+        hosts = parsed
+    else:
+        echo("    Inventory format unexpected – unrecognised structure.", essential=True)
         pretty = json.dumps(parsed, indent=2, sort_keys=True)
         for line in pretty.splitlines():
             echo(f"    {line}", essential=True)
         return
 
-    if not parsed:
+    if not hosts:
         echo("    (Inventory empty)", essential=True)
         return
 
-    for host in parsed:
+    for host in hosts:
         if not isinstance(host, dict):
             continue
         ip = host.get("ip", "unknown")
@@ -1322,7 +1352,43 @@ def display_inventory_contents() -> None:
         related = host.get("related_domains") or []
         if related:
             echo(f"      Related domains: {', '.join(related)}", essential=True)
+        harvester_data = host.get("harvester")
+        if isinstance(harvester_data, dict) and harvester_data:
+            echo("      theHarvester:", essential=True)
+            domains = harvester_data.get("domains") or []
+            if domains:
+                echo(f"        Domains: {', '.join(domains)}", essential=True)
+            for key, values in sorted(harvester_data.items()):
+                if key == "domains":
+                    continue
+                if not isinstance(values, list) or not values:
+                    continue
+                label = key.replace("_", " ").capitalize()
+                echo(f"        {label}: {', '.join(values)}", essential=True)
         echo("", essential=True)
+
+    if harvester_domains:
+        echo("    theHarvester domain summaries:", essential=True)
+        for summary in harvester_domains:
+            if not isinstance(summary, Mapping):
+                continue
+            domain_label = summary.get("domain") or "unknown"
+            echo(f"    Domain: {domain_label}", essential=True)
+            hosts_list = summary.get("hosts") or []
+            if hosts_list:
+                echo(f"      Hosts: {', '.join(hosts_list)}", essential=True)
+            ips_list = summary.get("ips") or []
+            if ips_list:
+                echo(f"      IPs: {', '.join(ips_list)}", essential=True)
+            sections = summary.get("sections") or {}
+            if isinstance(sections, Mapping):
+                for key, values in sorted(sections.items()):
+                    if not values:
+                        continue
+                    if isinstance(values, list):
+                        label = key.replace("_", " ").capitalize()
+                        echo(f"      {label}: {', '.join(values)}", essential=True)
+            echo("", essential=True)
 
 
 def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
@@ -1401,6 +1467,10 @@ def load_inventory() -> List[Mapping[str, object]]:
             data = json.load(file)
         if isinstance(data, list):
             return data
+        if isinstance(data, dict):
+            hosts = data.get("hosts")
+            if isinstance(hosts, list):
+                return hosts
     except json.JSONDecodeError:
         pass
     return []
@@ -1633,6 +1703,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     scanned_targets: Set[str] = {_normalise_target(target) for target in targets}
     for ip in discovered_hosts:
         scanned_targets.add(_normalise_target(ip))
+    not_processed_related: Set[str] = set()
 
     if not domains:
         echo("[!] No domains discovered in Nmap XML – skipping theHarvester stage.", essential=True)
@@ -1663,19 +1734,41 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             new_targets: Set[str] = set()
             related_domains: Set[str] = set()
 
-            for domain, findings in harvester_map.items():
-                domain_lower = domain.lower()
+            def _record_unprocessed(value: Optional[str]) -> None:
+                if not value:
+                    return
+                cleaned = str(value).strip()
+                if cleaned:
+                    not_processed_related.add(cleaned)
+
+            for domain_name, result in harvester_map.items():
+                domain_lower = domain_name.lower()
                 if domain_lower not in current_batch:
                     continue
+
                 if not _domain_is_permitted(domain_lower, permitted_domains):
+                    _record_unprocessed(domain_name)
+                    for finding in result.findings:
+                        _record_unprocessed(finding.hostname)
+                        _record_unprocessed(finding.ip)
+                    for section_values in result.sections.values():
+                        for item in section_values:
+                            _record_unprocessed(item)
                     continue
 
-                if _normalise_target(domain) not in scanned_targets:
-                    new_targets.add(domain)
+                normalised_domain = _normalise_target(domain_name)
+                if normalised_domain not in scanned_targets:
+                    new_targets.add(domain_name)
 
-                for finding in findings:
+                for finding in result.findings:
                     candidate = finding.hostname
-                    if not candidate or not _domain_is_permitted(candidate, permitted_domains):
+                    if not candidate:
+                        continue
+
+                    if not _domain_is_permitted(candidate, permitted_domains):
+                        _record_unprocessed(candidate)
+                        if finding.ip:
+                            _record_unprocessed(finding.ip)
                         continue
 
                     all_domains.add(candidate)
@@ -1687,11 +1780,25 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     if finding.ip:
                         normalised_ip = _normalise_target(finding.ip)
                         if normalised_ip not in scanned_targets:
-                            new_targets.add(finding.ip)
+                            _record_unprocessed(finding.ip)
 
                     candidate_domain = _registered_domain(candidate)
                     if candidate_domain:
                         related_domains.add(candidate_domain.lower())
+
+                for host_value in result.sections.get("hosts", []):
+                    if _domain_is_permitted(host_value, permitted_domains):
+                        all_domains.add(host_value)
+                        normalised_host = _normalise_target(host_value)
+                        if normalised_host not in scanned_targets:
+                            new_targets.add(host_value)
+                    else:
+                        _record_unprocessed(host_value)
+
+                for ip_value in result.sections.get("ips", []):
+                    normalised_ip = _normalise_target(ip_value)
+                    if normalised_ip not in scanned_targets:
+                        _record_unprocessed(ip_value)
 
             if new_targets:
                 resolved_targets = _resolve_related_targets(sorted(new_targets))
@@ -1725,6 +1832,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
             if not pending_domains:
                 echo("[+] No additional domains discovered via OSINT – ending iterative search.", essential=True)
+
+    export_not_processed_targets(not_processed_related)
 
     aggregate_results()
 
