@@ -27,7 +27,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set
 
@@ -806,7 +806,7 @@ def write_report(
     inventory = load_inventory()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     total_hosts = len(inventory)
     total_services = sum(len(entry.get("services", [])) for entry in inventory)
 
