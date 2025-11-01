@@ -49,6 +49,14 @@ TARGETS_FILE = ROOT / "targets.txt"
 
 
 _PRIVILEGE_WARNINGS: Set[str] = set()
+_SILENT_MODE = False
+
+
+def echo(message: str, *, essential: bool = False) -> None:
+    """Print a message unless running in silent mode."""
+
+    if not _SILENT_MODE or essential or message.startswith("[!]"):
+        print(message)
 
 
 def warn_privileges(tool: str, use_sudo: bool) -> None:
@@ -69,9 +77,10 @@ def warn_privileges(tool: str, use_sudo: bool) -> None:
         return
 
     _PRIVILEGE_WARNINGS.add(tool)
-    print(
+    echo(
         f"[!] {tool} typically requires elevated privileges for raw socket scans. "
-        "Re-run with --sudo or as root if the command fails with permission errors."
+        "Re-run with --sudo or as root if the command fails with permission errors.",
+        essential=True,
     )
 
 
@@ -187,6 +196,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Prefix network scanners with sudo when available.",
     )
+    parser.add_argument(
+        "--silent",
+        action="store_true",
+        help="Only display essential status messages.",
+    )
 
     return parser.parse_args(argv)
 
@@ -238,7 +252,7 @@ def load_targets(path: Path) -> List[str]:
     # ``hackthissite.org`` so the workflow can run immediately.
     if not path.exists():
         path.write_text("hackthissite.org\n", encoding="utf-8")
-        print(f"[+] Created default targets file at {path} with hackthissite.org")
+        echo(f"[+] Created default targets file at {path} with hackthissite.org", essential=True)
 
     targets: List[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -268,15 +282,18 @@ def run_command(cmd: List[str], *, description: str, check: bool = False) -> boo
     # Execute a subprocess while printing clear status messages. Returning a
     # boolean allows callers to gracefully skip follow-up steps when a stage
     # fails instead of raising an exception mid-pipeline.
-    print(f"\n[+] {description}")
-    print("    " + " ".join(cmd))
+    if not _SILENT_MODE:
+        echo("")
+    echo(f"[+] {description}", essential=True)
+    if not _SILENT_MODE:
+        echo("    " + " ".join(cmd))
     try:
         completed = subprocess.run(cmd, check=check)
         return completed.returncode == 0
     except FileNotFoundError:
-        print(f"[!] Command not found: {cmd[0]}")
+        echo(f"[!] Command not found: {cmd[0]}", essential=True)
     except subprocess.CalledProcessError as exc:
-        print(f"[!] Command failed with exit code {exc.returncode}")
+        echo(f"[!] Command failed with exit code {exc.returncode}", essential=True)
     return False
 
 
@@ -289,7 +306,7 @@ def run_masscan(
     # Perform the high-speed discovery scan with Masscan, resolving hostnames
     # to IPv4 addresses when necessary.
     if not shutil.which("masscan"):
-        print("[!] masscan is not installed or not in PATH – skipping discovery stage.")
+        echo("[!] masscan is not installed or not in PATH – skipping discovery stage.", essential=True)
         return {}
 
     resolved_targets: List[str] = []
@@ -313,7 +330,7 @@ def run_masscan(
         try:
             infos = socket.getaddrinfo(target, None)
         except socket.gaierror:
-            print(f"[!] Unable to resolve target '{target}' for Masscan – skipping.")
+            echo(f"[!] Unable to resolve target '{target}' for Masscan – skipping.", essential=True)
             continue
 
         ipv4_addresses = {
@@ -323,13 +340,13 @@ def run_masscan(
         }
 
         if not ipv4_addresses:
-            print(f"[!] No IPv4 addresses resolved for '{target}' – skipping Masscan entry.")
+            echo(f"[!] No IPv4 addresses resolved for '{target}' – skipping Masscan entry.", essential=True)
             continue
 
         resolved_targets.extend(sorted(ipv4_addresses))
 
     if not resolved_targets:
-        print("[!] No valid targets available for Masscan – skipping discovery stage.")
+        echo("[!] No valid targets available for Masscan – skipping discovery stage.", essential=True)
         return {}
 
     warn_privileges("masscan", use_sudo)
@@ -365,7 +382,7 @@ def run_smrib(
     # similar arguments to the Masscan workflow.
     script_path = Path(smrib_path).expanduser()
     if not script_path.exists():
-        print(f"[!] smrib.py not found at {script_path} – skipping discovery stage.")
+        echo(f"[!] smrib.py not found at {script_path} – skipping discovery stage.", essential=True)
         return {}
 
     cmd: List[str] = [sys.executable or "python3", str(script_path)]
@@ -391,7 +408,7 @@ def run_nmap_discovery(
     # Use Nmap for the discovery phase when Masscan or smrib.py are not
     # requested, saving greppable output per target for later parsing.
     if not shutil.which("nmap"):
-        print("[!] nmap not installed – unable to perform discovery stage.")
+        echo("[!] nmap not installed – unable to perform discovery stage.", essential=True)
         return {}
 
     warn_privileges("nmap", use_sudo)
@@ -452,6 +469,29 @@ def merge_discovered_hosts(
     return merged
 
 
+def display_discovered_hosts(
+    discovered_hosts: Mapping[str, Optional[Set[int]]],
+    fallback_range: Optional[str],
+) -> None:
+    """Print a concise summary of discovered hosts and their ports."""
+
+    if not discovered_hosts:
+        echo("[!] No hosts discovered during the discovery phase.", essential=True)
+        return
+
+    echo("[+] Hosts and ports identified:", essential=True)
+    for host in sorted(discovered_hosts):
+        ports = discovered_hosts[host]
+        if ports:
+            port_list = ", ".join(str(port) for port in sorted(ports))
+        else:
+            if fallback_range:
+                port_list = f"(fallback range {fallback_range})"
+            else:
+                port_list = "(fallback range)"
+        echo(f"    - {host}: {port_list}", essential=True)
+
+
 def run_nmap_fingerprinting(
     hosts: Mapping[str, Optional[Set[int]]],
     fallback_range: Optional[str],
@@ -460,7 +500,7 @@ def run_nmap_fingerprinting(
     # Perform comprehensive service detection with Nmap using the host/port
     # combinations identified earlier.
     if not shutil.which("nmap"):
-        print("[!] nmap is required for the fingerprinting stage; skipping.")
+        echo("[!] nmap is required for the fingerprinting stage; skipping.", essential=True)
         return
 
     warn_privileges("nmap", use_sudo)
@@ -567,7 +607,10 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
                 cmd.extend(json_flag)
             run_command(cmd, description=f"theHarvester OSINT for {domain}")
         else:
-            print(f"[!] theHarvester not available – collecting basic DNS data for {domain}")
+            echo(
+                f"[!] theHarvester not available – collecting basic DNS data for {domain}",
+                essential=True,
+            )
             host_out = HARVESTER_DIR / f"{domain}.host.txt"
             dig_out = HARVESTER_DIR / f"{domain}.dig.txt"
             with host_out.open("w", encoding="utf-8") as hfile:
@@ -634,7 +677,7 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
 
     eyewitness_path = shutil.which("eyewitness")
     if not eyewitness_path:
-        print("[!] EyeWitness not installed – skipping screenshot capture.")
+        echo("[!] EyeWitness not installed – skipping screenshot capture.", essential=True)
         return []
 
     screenshots: List[Path] = []
@@ -733,18 +776,24 @@ def write_report(
             lines.append("No screenshots captured (EyeWitness unavailable or no HTTP services detected).")
 
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
-    print(f"[+] Wrote report to {REPORT_PATH}")
+    echo(f"[+] Wrote report to {REPORT_PATH}", essential=True)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     # Tie together all pipeline stages in the intended execution order.
     args = parse_args(argv)
+    global _SILENT_MODE
+    _SILENT_MODE = args.silent
+
+    echo("[+] Starting reconnaissance workflow", essential=True)
     port_selection = build_port_selection(args)
     targets = load_targets(TARGETS_FILE)
+    echo(f"[+] Loaded {len(targets)} target(s) from {TARGETS_FILE}", essential=True)
 
     ensure_writable_directory(OUT_DIR)
     for path in (DISCOVERY_DIR, NMAP_DIR, HARVESTER_DIR, EYEWITNESS_DIR):
         ensure_writable_directory(path)
+    echo("[+] Output directories verified", essential=True)
 
     discovery_description = f"{args.scanner} ({port_selection.description})"
     masscan_results: Mapping[str, Set[int]] = {}
@@ -766,23 +815,29 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         port_selection.fallback_range,
     )
 
+    display_discovered_hosts(discovered_hosts, port_selection.fallback_range)
+
     run_nmap_fingerprinting(discovered_hosts, port_selection.fallback_range, args.sudo)
 
     domains = extract_domains_from_nmap()
     if domains:
         run_harvester(domains, args)
     else:
-        print("[!] No domains discovered in Nmap XML – skipping theHarvester stage.")
+        echo("[!] No domains discovered in Nmap XML – skipping theHarvester stage.", essential=True)
 
     aggregate_results()
 
     inventory = load_inventory()
+    echo(f"[+] Aggregated inventory entries: {len(inventory)}", essential=True)
     urls = collect_http_urls(inventory)
     screenshots = run_eyewitness(urls, args)
 
     write_report(args, targets, discovery_description, discovered_hosts, screenshots)
 
-    print(f"[+] Recon workflow completed. Inventory: {INVENTORY_JSON}, CSV: {INVENTORY_CSV}")
+    echo(
+        f"[+] Recon workflow completed. Inventory: {INVENTORY_JSON}, CSV: {INVENTORY_CSV}",
+        essential=True,
+    )
 
 
 if __name__ == "__main__":
