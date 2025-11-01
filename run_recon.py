@@ -196,7 +196,6 @@ class PortSelection:
     masscan_args: List[str]
     nmap_args: List[str]
     smrib_args: List[str]
-    fallback_range: Optional[str]
     forced_ports: Optional[List[int]] = None
 
 
@@ -354,7 +353,6 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
             masscan_args=["-p", port_list],
             nmap_args=["-p", port_list],
             smrib_args=["--ports", port_list],
-            fallback_range=None,
             forced_ports=unique_ports,
         )
 
@@ -374,22 +372,18 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
         masscan_args = ["-p", args.port_range]
         nmap_args = ["-p", args.port_range]
         smrib_args = ["--ports", args.port_range]
-        fallback = args.port_range
     elif top_ports is not None:
         description = f"top {top_ports} ports"
         value = str(top_ports)
         masscan_args = ["--top-ports", value]
         nmap_args = ["--top-ports", value]
         smrib_args = ["--top-ports", value]
-        fallback = None
     else:
         description = "ports 1-65535"
         masscan_args = ["-p", "1-65535"]
         nmap_args = ["-p", "1-65535"]
         smrib_args = ["--ports", "1-65535"]
-        fallback = "1-65535"
-
-    return PortSelection(description, masscan_args, nmap_args, smrib_args, fallback)
+    return PortSelection(description, masscan_args, nmap_args, smrib_args)
 
 
 def load_targets(path: Path) -> List[str]:
@@ -671,12 +665,11 @@ def merge_discovered_hosts(
     masscan_results: Mapping[str, Set[int]],
     smrib_results: Mapping[str, Set[int]],
     nmap_results: Mapping[str, Set[int]],
-    fallback_range: Optional[str],
     forced_ports: Optional[Sequence[int]],
-) -> Dict[str, Optional[Set[int]]]:
-    # Consolidate discovery findings and, if nothing was found, fall back to the
-    # requested port range so the fingerprinting phase still runs.
-    merged: Dict[str, Optional[Set[int]]] = {}
+) -> Dict[str, Set[int]]:
+    # Consolidate discovery findings. Only ports confirmed during discovery will
+    # be fingerprinted in the next stage.
+    merged: Dict[str, Set[int]] = {}
 
     for result in (masscan_results, smrib_results, nmap_results):
         for ip, ports in result.items():
@@ -685,7 +678,7 @@ def merge_discovered_hosts(
     if forced_ports:
         forced_sorted = sorted(dict.fromkeys(forced_ports))
         forced_set = set(forced_sorted)
-        overridden: Dict[str, Optional[Set[int]]] = {}
+        overridden: Dict[str, Set[int]] = {}
         for host in merged:
             overridden[host] = set(forced_set)
 
@@ -696,20 +689,16 @@ def merge_discovered_hosts(
 
     if not merged:
         for target in targets:
-            merged[target] = None if fallback_range else set()
+            merged[target] = set()
 
     for ip, ports in list(merged.items()):
-        if ports:
-            merged[ip] = set(sorted(ports))
-        elif fallback_range:
-            merged[ip] = None
+        merged[ip] = set(sorted(ports))
 
     return merged
 
 
 def display_discovered_hosts(
-    discovered_hosts: Mapping[str, Optional[Set[int]]],
-    fallback_range: Optional[str],
+    discovered_hosts: Mapping[str, Set[int]],
 ) -> None:
     """Print a concise summary of discovered hosts and their ports."""
 
@@ -723,20 +712,16 @@ def display_discovered_hosts(
         if ports:
             port_list = ", ".join(str(port) for port in sorted(ports))
         else:
-            if fallback_range:
-                port_list = f"(fallback range {fallback_range})"
-            else:
-                port_list = "(fallback range)"
+            port_list = "no open ports discovered"
         echo(f"    - {host}: {port_list}", essential=True)
 
 
 def run_nmap_fingerprinting(
-    hosts: Mapping[str, Optional[Set[int]]],
-    fallback_range: Optional[str],
+    hosts: Mapping[str, Set[int]],
     use_sudo: bool,
 ) -> None:
-    # Perform comprehensive service detection with Nmap using the host/port
-    # combinations identified earlier.
+    # Perform comprehensive service detection with Nmap using only the
+    # host/port combinations identified during discovery.
     if not shutil.which("nmap"):
         echo("[!] nmap is required for the fingerprinting stage; skipping.", essential=True)
         return
@@ -744,7 +729,13 @@ def run_nmap_fingerprinting(
     warn_privileges("nmap", use_sudo)
 
     NMAP_DIR.mkdir(parents=True, exist_ok=True)
-    for target, ports in hosts.items():
+    actionable_hosts = {target: ports for target, ports in hosts.items() if ports}
+
+    if not actionable_hosts:
+        echo("[!] No open ports discovered during phase 1 – skipping fingerprinting stage.", essential=True)
+        return
+
+    for target, ports in actionable_hosts.items():
         sanitized = re.sub(r"[^0-9A-Za-z_.-]", "_", target)
         outbase = NMAP_DIR / sanitized
         cmd = [
@@ -756,15 +747,9 @@ def run_nmap_fingerprinting(
             "-oA",
             str(outbase),
         ]
-        if ports:
-            port_list = ",".join(str(port) for port in sorted(ports))
-            cmd.extend(["-p", port_list])
-            port_scope = f"{len(ports)} discovered port(s)"
-        elif fallback_range:
-            cmd.extend(["-p", fallback_range])
-            port_scope = f"fallback range {fallback_range}"
-        else:
-            port_scope = "default fallback range"
+        port_list = ",".join(str(port) for port in sorted(ports))
+        cmd.extend(["-p", port_list])
+        port_scope = f"{len(ports)} discovered port(s)"
         cmd.append(target)
         description = (
             f"Nmap fingerprinting for {target} – default scripts, version, and OS detection "
@@ -1028,7 +1013,7 @@ def write_report(
         if ports:
             port_list = ", ".join(str(port) for port in sorted(ports))
         else:
-            port_list = "(fallback range)"
+            port_list = "no open ports discovered"
         lines.append(f"- {host}: {port_list}")
 
     lines.append("")
@@ -1094,13 +1079,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         masscan_results,
         smrib_results,
         nmap_results,
-        port_selection.fallback_range,
         port_selection.forced_ports,
     )
 
-    display_discovered_hosts(discovered_hosts, port_selection.fallback_range)
+    display_discovered_hosts(discovered_hosts)
 
-    run_nmap_fingerprinting(discovered_hosts, port_selection.fallback_range, args.sudo)
+    run_nmap_fingerprinting(discovered_hosts, args.sudo)
 
     domains = extract_domains_from_nmap()
     if domains:
