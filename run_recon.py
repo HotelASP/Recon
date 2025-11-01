@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
-"""Orchestrate a three-stage reconnaissance workflow.
-
-The pipeline performs the following actions:
-
-1. **Discovery scan** – run Masscan (default), ``smrib.py``, or Nmap across the
-   provided targets to identify live hosts and open ports.
-2. **Detailed fingerprinting** – execute Nmap with service, version, and OS
-   detection against the discovered host/port combinations, persisting the XML
-   output.
-3. **OSINT collection** – leverage theHarvester (when available) to gather
-   related hostnames and subdomains based on the domains resolved during the
-   Nmap phase.
-
-Once all stages finish, the script calls :mod:`tools.aggregate` to merge the
-results into ``inventory.json`` and ``inventory.csv`` and then generates a short
-``report.md`` that summarises the run and references any screenshots captured by
-EyeWitness.
-"""
+# Orchestrate a three-stage reconnaissance workflow that chains together
+# discovery, service fingerprinting, and OSINT enrichment. The execution flow
+# is intentionally verbose to make the automation steps clear:
+#
+# 1. Discovery scan – execute Masscan (default), ``smrib.py``, or Nmap against
+#    the supplied targets to find live hosts and open TCP ports.
+# 2. Detailed fingerprinting – run a comprehensive Nmap scan for the discovered
+#    host/port combinations, capturing service, version, and OS information.
+# 3. OSINT collection – when supported, query theHarvester to enumerate
+#    hostnames and subdomains related to the identified domains.
+#
+# The aggregated results are written to ``inventory.json`` and
+# ``inventory.csv`` and summarised in ``report.md`` together with any
+# EyeWitness screenshots.
 
 from __future__ import annotations
 
@@ -53,7 +49,8 @@ TARGETS_FILE = ROOT / "targets.txt"
 
 @dataclass
 class PortSelection:
-    """Represents the chosen discovery port strategy."""
+    # Represent the discovery port scanning strategy so the same configuration
+    # can be reused by Masscan, smrib.py, and Nmap.
 
     description: str
     masscan_args: List[str]
@@ -63,6 +60,8 @@ class PortSelection:
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    # Configure the command-line interface and explain every supported stage so
+    # the automation can be controlled without editing the script.
     parser = argparse.ArgumentParser(
         description=(
             "Run the reconnaissance workflow: discovery (masscan/smrib/nmap) → "
@@ -78,7 +77,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--top-ports",
         type=int,
-        help="Scan only the top N ports instead of the full range.",
+        help="Scan only the top N ports instead of the full range (default: 100).",
     )
     parser.add_argument(
         "--port-range",
@@ -138,10 +137,19 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 
 def build_port_selection(args: argparse.Namespace) -> PortSelection:
-    if args.top_ports is not None and args.top_ports <= 0:
+    # Decide which port coverage strategy to use. Users can explicitly request a
+    # port range or the top-N ports. When no preference is provided the script
+    # defaults to the top 100 ports to keep the initial scan focused.
+    explicit_top_ports = args.top_ports is not None
+    top_ports = args.top_ports
+
+    if not args.port_range and not explicit_top_ports:
+        top_ports = 100
+
+    if top_ports is not None and top_ports <= 0:
         raise SystemExit("--top-ports must be a positive integer")
 
-    if args.port_range and args.top_ports is not None:
+    if args.port_range and explicit_top_ports:
         raise SystemExit("Specify either --top-ports or --port-range, not both.")
 
     if args.port_range:
@@ -152,9 +160,9 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
         nmap_args = ["-p", args.port_range]
         smrib_args = ["--ports", args.port_range]
         fallback = args.port_range
-    elif args.top_ports is not None:
-        description = f"top {args.top_ports} ports"
-        value = str(args.top_ports)
+    elif top_ports is not None:
+        description = f"top {top_ports} ports"
+        value = str(top_ports)
         masscan_args = ["--top-ports", value]
         nmap_args = ["--top-ports", value]
         smrib_args = ["--top-ports", value]
@@ -170,8 +178,12 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
 
 
 def load_targets(path: Path) -> List[str]:
+    # Load the reconnaissance targets from disk. If the operator has not
+    # prepared a list yet, create a starter file that points at
+    # ``hackthissite.org`` so the workflow can run immediately.
     if not path.exists():
-        raise SystemExit(f"Targets file not found: {path}")
+        path.write_text("hackthissite.org\n", encoding="utf-8")
+        print(f"[+] Created default targets file at {path} with hackthissite.org")
 
     targets: List[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -187,6 +199,8 @@ def load_targets(path: Path) -> List[str]:
 
 
 def prefix_command(cmd: List[str], use_sudo: bool) -> List[str]:
+    # Optionally prefix commands with sudo when elevated permissions are
+    # required and sudo is available on the host system.
     if not use_sudo:
         return cmd
     sudo_path = shutil.which("sudo")
@@ -196,6 +210,9 @@ def prefix_command(cmd: List[str], use_sudo: bool) -> List[str]:
 
 
 def run_command(cmd: List[str], *, description: str, check: bool = False) -> bool:
+    # Execute a subprocess while printing clear status messages. Returning a
+    # boolean allows callers to gracefully skip follow-up steps when a stage
+    # fails instead of raising an exception mid-pipeline.
     print(f"\n[+] {description}")
     print("    " + " ".join(cmd))
     try:
@@ -214,6 +231,8 @@ def run_masscan(
     rate: int,
     use_sudo: bool,
 ) -> Mapping[str, Set[int]]:
+    # Perform the high-speed discovery scan with Masscan, resolving hostnames
+    # to IPv4 addresses when necessary.
     if not shutil.which("masscan"):
         print("[!] masscan is not installed or not in PATH – skipping discovery stage.")
         return {}
@@ -285,6 +304,8 @@ def run_smrib(
     extra_args: Optional[Sequence[str]],
     use_sudo: bool,
 ) -> Mapping[str, Set[int]]:
+    # Provide an alternative discovery method that shells out to smrib.py with
+    # similar arguments to the Masscan workflow.
     script_path = Path(smrib_path).expanduser()
     if not script_path.exists():
         print(f"[!] smrib.py not found at {script_path} – skipping discovery stage.")
@@ -310,6 +331,8 @@ def run_nmap_discovery(
     port_selection: PortSelection,
     use_sudo: bool,
 ) -> Mapping[str, Set[int]]:
+    # Use Nmap for the discovery phase when Masscan or smrib.py are not
+    # requested, saving greppable output per target for later parsing.
     if not shutil.which("nmap"):
         print("[!] nmap not installed – unable to perform discovery stage.")
         return {}
@@ -349,6 +372,8 @@ def merge_discovered_hosts(
     nmap_results: Mapping[str, Set[int]],
     fallback_range: Optional[str],
 ) -> Dict[str, Optional[Set[int]]]:
+    # Consolidate discovery findings and, if nothing was found, fall back to the
+    # requested port range so the fingerprinting phase still runs.
     merged: Dict[str, Optional[Set[int]]] = {}
 
     for result in (masscan_results, smrib_results, nmap_results):
@@ -373,6 +398,8 @@ def run_nmap_fingerprinting(
     fallback_range: Optional[str],
     use_sudo: bool,
 ) -> None:
+    # Perform comprehensive service detection with Nmap using the host/port
+    # combinations identified earlier.
     if not shutil.which("nmap"):
         print("[!] nmap is required for the fingerprinting stage; skipping.")
         return
@@ -400,6 +427,8 @@ def run_nmap_fingerprinting(
 
 
 def extract_domains_from_nmap() -> Set[str]:
+    # Parse the Nmap XML output to collect second-level domains that can be fed
+    # into theHarvester for OSINT enrichment.
     results = aggregate.parse_nmap_dir(str(NMAP_DIR))
     domains: Set[str] = set()
     for data in results.values():
@@ -422,6 +451,8 @@ _HARVESTER_HELP_CACHE: Optional[str] = None
 
 
 def _harvester_supports_option(executable: str, option: str) -> bool:
+    # Cache theHarvester help output to detect whether optional flags are
+    # supported by the installed version.
     global _HARVESTER_HELP_CACHE
     if _HARVESTER_HELP_CACHE is None:
         try:
@@ -441,6 +472,8 @@ def _harvester_supports_option(executable: str, option: str) -> bool:
 
 
 def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
+    # Collect OSINT for each discovered domain, falling back to built-in DNS
+    # commands when theHarvester is not present.
     HARVESTER_DIR.mkdir(parents=True, exist_ok=True)
     harvester_path = shutil.which("theHarvester")
 
@@ -483,6 +516,8 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
 
 
 def aggregate_results() -> None:
+    # Invoke the aggregation helper to merge outputs from every stage into the
+    # consolidated inventory artefacts.
     cmd = [
         sys.executable or "python3",
         str(ROOT / "tools" / "aggregate.py"),
@@ -503,6 +538,8 @@ def aggregate_results() -> None:
 
 
 def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
+    # Walk the aggregated inventory and build a deduplicated list of HTTP(S)
+    # endpoints that EyeWitness should visit.
     urls: List[str] = []
     for entry in inventory:
         ip = entry.get("ip")
@@ -529,6 +566,8 @@ def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
 
 
 def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
+    # Capture screenshots of HTTP services using EyeWitness when the binary is
+    # installed and the operator has not opted out of this stage.
     if args.skip_eyewitness or not urls:
         return []
 
@@ -562,6 +601,8 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
 
 
 def load_inventory() -> List[Mapping[str, object]]:
+    # Return the aggregated reconnaissance inventory if it already exists. The
+    # data is reused when generating a new report.
     if not INVENTORY_JSON.exists():
         return []
     try:
@@ -581,6 +622,8 @@ def write_report(
     discovered_hosts: Mapping[str, Optional[Set[int]]],
     screenshots: Sequence[Path],
 ) -> None:
+    # Produce a Markdown summary of the recon run that references the generated
+    # inventory and any captured screenshots.
     inventory = load_inventory()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -633,6 +676,7 @@ def write_report(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
+    # Tie together all pipeline stages in the intended execution order.
     args = parse_args(argv)
     port_selection = build_port_selection(args)
     targets = load_targets(TARGETS_FILE)
