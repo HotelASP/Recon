@@ -25,6 +25,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +46,60 @@ REPORT_PATH = OUT_DIR / "report.md"
 MASSCAN_JSON = OUT_DIR / "masscan.json"
 SMRIB_JSON = OUT_DIR / "smrib.json"
 TARGETS_FILE = ROOT / "targets.txt"
+
+
+_PRIVILEGE_WARNINGS: Set[str] = set()
+
+
+def warn_privileges(tool: str, use_sudo: bool) -> None:
+    """Warn once when a scanner is likely to require elevated privileges."""
+
+    if use_sudo:
+        return
+
+    # ``os.geteuid`` is not available on Windows, so guard the lookup.
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is None:
+        return
+
+    if geteuid() == 0:
+        return
+
+    if tool in _PRIVILEGE_WARNINGS:
+        return
+
+    _PRIVILEGE_WARNINGS.add(tool)
+    print(
+        f"[!] {tool} typically requires elevated privileges for raw socket scans. "
+        "Re-run with --sudo or as root if the command fails with permission errors."
+    )
+
+
+def ensure_writable_directory(path: Path) -> None:
+    """Ensure that the provided directory exists and is writable."""
+
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except PermissionError as exc:
+        raise SystemExit(
+            f"Unable to create directory '{path}': {exc}. Adjust its permissions or "
+            "run the script with elevated privileges."
+        ) from exc
+
+    if not os.access(path, os.W_OK | os.X_OK):
+        raise SystemExit(
+            f"Directory '{path}' is not writable. Update its ownership/permissions "
+            "or rerun the script with --sudo."
+        )
+
+    try:
+        with tempfile.TemporaryFile(dir=path):
+            pass
+    except PermissionError as exc:
+        raise SystemExit(
+            f"Unable to write to directory '{path}': {exc}. Fix permissions or use "
+            "--sudo to continue."
+        ) from exc
 
 
 @dataclass
@@ -277,6 +332,8 @@ def run_masscan(
         print("[!] No valid targets available for Masscan – skipping discovery stage.")
         return {}
 
+    warn_privileges("masscan", use_sudo)
+
     cmd = [
         "masscan",
         "--rate",
@@ -336,6 +393,8 @@ def run_nmap_discovery(
     if not shutil.which("nmap"):
         print("[!] nmap not installed – unable to perform discovery stage.")
         return {}
+
+    warn_privileges("nmap", use_sudo)
 
     DISCOVERY_DIR.mkdir(parents=True, exist_ok=True)
     discovered: Dict[str, Set[int]] = {}
@@ -403,6 +462,8 @@ def run_nmap_fingerprinting(
     if not shutil.which("nmap"):
         print("[!] nmap is required for the fingerprinting stage; skipping.")
         return
+
+    warn_privileges("nmap", use_sudo)
 
     NMAP_DIR.mkdir(parents=True, exist_ok=True)
     for target, ports in hosts.items():
@@ -681,9 +742,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     port_selection = build_port_selection(args)
     targets = load_targets(TARGETS_FILE)
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_writable_directory(OUT_DIR)
     for path in (DISCOVERY_DIR, NMAP_DIR, HARVESTER_DIR, EYEWITNESS_DIR):
-        path.mkdir(parents=True, exist_ok=True)
+        ensure_writable_directory(path)
 
     discovery_description = f"{args.scanner} ({port_selection.description})"
     masscan_results: Mapping[str, Set[int]] = {}
