@@ -26,6 +26,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -217,9 +218,58 @@ def run_masscan(
         print("[!] masscan is not installed or not in PATH – skipping discovery stage.")
         return {}
 
-    cmd = ["masscan", "--rate", str(rate), "--open", "--output-format", "json", "-oJ", str(MASSCAN_JSON)]
+    resolved_targets: List[str] = []
+    for target in targets:
+        try:
+            # Preserve IP addresses and networks as-is so Masscan can handle
+            # them directly.
+            ipaddress.ip_network(target, strict=False)
+            resolved_targets.append(target)
+            continue
+        except ValueError:
+            pass
+
+        try:
+            ipaddress.ip_address(target)
+            resolved_targets.append(target)
+            continue
+        except ValueError:
+            pass
+
+        try:
+            infos = socket.getaddrinfo(target, None)
+        except socket.gaierror:
+            print(f"[!] Unable to resolve target '{target}' for Masscan – skipping.")
+            continue
+
+        ipv4_addresses = {
+            info[4][0]
+            for info in infos
+            if info and info[4] and isinstance(info[4][0], str) and ":" not in info[4][0]
+        }
+
+        if not ipv4_addresses:
+            print(f"[!] No IPv4 addresses resolved for '{target}' – skipping Masscan entry.")
+            continue
+
+        resolved_targets.extend(sorted(ipv4_addresses))
+
+    if not resolved_targets:
+        print("[!] No valid targets available for Masscan – skipping discovery stage.")
+        return {}
+
+    cmd = [
+        "masscan",
+        "--rate",
+        str(rate),
+        "--open",
+        "--output-format",
+        "json",
+        "-oJ",
+        str(MASSCAN_JSON),
+    ]
     cmd.extend(port_selection.masscan_args)
-    cmd.extend(targets)
+    cmd.extend(list(dict.fromkeys(resolved_targets)))
     success = run_command(prefix_command(cmd, use_sudo), description=f"Masscan discovery ({port_selection.description})")
     if not success:
         return {}
@@ -368,6 +418,28 @@ def extract_domains_from_nmap() -> Set[str]:
     return domains
 
 
+_HARVESTER_HELP_CACHE: Optional[str] = None
+
+
+def _harvester_supports_option(executable: str, option: str) -> bool:
+    global _HARVESTER_HELP_CACHE
+    if _HARVESTER_HELP_CACHE is None:
+        try:
+            proc = subprocess.run(
+                [executable, "-h"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            _HARVESTER_HELP_CACHE = proc.stdout or ""
+        except Exception:
+            _HARVESTER_HELP_CACHE = ""
+
+    pattern = re.compile(rf"(?m)^\s*{re.escape(option)}\b")
+    return bool(_HARVESTER_HELP_CACHE and pattern.search(_HARVESTER_HELP_CACHE))
+
+
 def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
     HARVESTER_DIR.mkdir(parents=True, exist_ok=True)
     harvester_path = shutil.which("theHarvester")
@@ -388,9 +460,17 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
                 str(args.harvester_limit),
                 "-f",
                 str(prefix),
-                "-o",
-                f"{prefix}.json",
             ]
+            json_flag: Optional[List[str]] = None
+            if _harvester_supports_option(harvester_path, "-o"):
+                json_flag = ["-o", f"{prefix}.json"]
+            elif _harvester_supports_option(harvester_path, "-j"):
+                json_flag = ["-j", f"{prefix}.json"]
+            elif _harvester_supports_option(harvester_path, "--json"):
+                json_flag = ["--json", f"{prefix}.json"]
+
+            if json_flag:
+                cmd.extend(json_flag)
             run_command(cmd, description=f"theHarvester OSINT for {domain}")
         else:
             print(f"[!] theHarvester not available – collecting basic DNS data for {domain}")
@@ -504,7 +584,7 @@ def write_report(
     inventory = load_inventory()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    timestamp = datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
     total_hosts = len(inventory)
     total_services = sum(len(entry.get("services", [])) for entry in inventory)
 
