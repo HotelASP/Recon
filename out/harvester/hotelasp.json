@@ -1,0 +1,1 @@
+{"cmd":"-d hotelasp.com -b \"crtsh, shodan, duckduckgo\" -l 500 -f \/home\/kali\/Desktop\/Recon\/out\/harvester\/hotelasp.com","hosts":["secure.hotelasp.com"],"shodan":[]}

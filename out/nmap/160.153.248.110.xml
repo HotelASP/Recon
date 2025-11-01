@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nmaprun>
 <?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
-<!-- Nmap 7.95 scan initiated Sat Nov  1 15:47:18 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110 -->
-<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110" start="1762012038" startstr="Sat Nov  1 15:47:18 2025" version="7.95" xmloutputversion="1.05">
+<!-- Nmap 7.95 scan initiated Sat Nov  1 15:54:22 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110" start="1762012462" startstr="Sat Nov  1 15:54:22 2025" version="7.95" xmloutputversion="1.05">
 <scaninfo type="syn" protocol="tcp" numservices="1" services="80"/>
 <verbose level="0"/>
 <debugging level="0"/>
@@ -11,7 +11,7 @@
 <hostnames>
 </hostnames>
 </hosthint>
-<host starttime="1762012039" endtime="1762012054"><status state="up" reason="reset" reason_ttl="255"/>
+<host starttime="1762012462" endtime="1762012478"><status state="up" reason="reset" reason_ttl="255"/>
 <address addr="160.153.248.110" addrtype="ipv4"/>
 <hostnames>
 <hostname name="110.248.153.160.host.secureserver.net" type="PTR"/>
@@ -32,11 +32,11 @@
 <osclass type="general purpose" vendor="QEMU" osfamily="QEMU" accuracy="94"><cpe>cpe:/a:qemu:qemu</cpe></osclass>
 </osmatch>
 </os>
-<tcpsequence index="17" difficulty="Good luck!" values="463DB601,463FAA01,4640A401,46419E01,46429801,46439201"/>
-<ipidsequence class="Incremental" values="AEDF,AEE0,AEE1,AEE2,AEE3,AEE4"/>
+<tcpsequence index="15" difficulty="Worthy challenge" values="499CFE01,499DF801,499EF201,499FEC01,49A0E601,49A2DA01"/>
+<ipidsequence class="Incremental" values="C896,C897,C898,C899,C89A,C89B"/>
 <tcptssequence class="none returned (unsupported)"/>
-<times srtt="21864" rttvar="27503" to="131876"/>
+<times srtt="21257" rttvar="26206" to="126081"/>
 </host>
-<runstats><finished time="1762012054" timestr="Sat Nov  1 15:47:34 2025" summary="Nmap done at Sat Nov  1 15:47:34 2025; 1 IP address (1 host up) scanned in 15.74 seconds" elapsed="15.74" exit="success"/><hosts up="1" down="0" total="1"/>
+<runstats><finished time="1762012478" timestr="Sat Nov  1 15:54:38 2025" summary="Nmap done at Sat Nov  1 15:54:38 2025; 1 IP address (1 host up) scanned in 15.61 seconds" elapsed="15.61" exit="success"/><hosts up="1" down="0" total="1"/>
 </runstats>
 </nmaprun>

@@ -1,1 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?><theHarvester><cmd>-d secureserver.net -b "crtsh, shodan, duckduckgo" -l 500 -f /home/kali/Desktop/Recon/out/harvester/secureserver.net</cmd></theHarvester>
