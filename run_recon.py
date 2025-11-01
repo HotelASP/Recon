@@ -41,13 +41,17 @@ DISCOVERY_DIR = OUT_DIR / "discovery"
 NMAP_DIR = OUT_DIR / "nmap"
 HARVESTER_DIR = OUT_DIR / "harvester"
 EYEWITNESS_DIR = OUT_DIR / "eyewitness"
-INVENTORY_JSON = OUT_DIR / "inventory.json"
-INVENTORY_CSV = OUT_DIR / "inventory.csv"
-REPORT_PATH = OUT_DIR / "report.md"
-MASSCAN_JSON = OUT_DIR / "masscan.json"
-SMRIB_JSON = OUT_DIR / "smrib.json"
+MASSCAN_DIR = OUT_DIR / "masscan"
+SMRIB_DIR = OUT_DIR / "smrib"
+REPORT_DIR = OUT_DIR / "report"
+LOG_DIR = OUT_DIR / "log"
+MASSCAN_JSON = MASSCAN_DIR / "masscan.json"
+SMRIB_JSON = SMRIB_DIR / "smrib.json"
+INVENTORY_JSON = REPORT_DIR / "inventory.json"
+INVENTORY_CSV = REPORT_DIR / "inventory.csv"
+REPORT_PATH = REPORT_DIR / "report.md"
 TARGETS_FILE = ROOT / "targets.txt"
-LOG_PATH = OUT_DIR / "recon.log"
+LOG_PATH = LOG_DIR / "recon.log"
 
 
 TOOL_SUMMARIES = {
@@ -106,7 +110,16 @@ def reset_output_tree() -> None:
     ):
         _remove_path(artefact)
 
-    for directory in (DISCOVERY_DIR, NMAP_DIR, HARVESTER_DIR, EYEWITNESS_DIR):
+    for directory in (
+        DISCOVERY_DIR,
+        NMAP_DIR,
+        HARVESTER_DIR,
+        EYEWITNESS_DIR,
+        MASSCAN_DIR,
+        SMRIB_DIR,
+        REPORT_DIR,
+        LOG_DIR,
+    ):
         _remove_path(directory)
 
 
@@ -115,7 +128,7 @@ def _ensure_log_file() -> TextIO:
 
     global _LOG_FILE
     if _LOG_FILE is None:
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
         _LOG_FILE = LOG_PATH.open("w", encoding="utf-8")
         _LOG_FILE.write("=" * 72 + "\n")
@@ -615,6 +628,7 @@ def run_masscan(
 
     warn_privileges("masscan", use_sudo)
 
+    MASSCAN_DIR.mkdir(parents=True, exist_ok=True)
     cmd = [
         "masscan",
         "--rate",
@@ -664,6 +678,7 @@ def run_smrib(
 
     cmd: List[str] = [sys.executable or "python3", str(script_path)]
     cmd.extend(port_selection.smrib_args)
+    SMRIB_DIR.mkdir(parents=True, exist_ok=True)
     cmd.extend(["--json", str(SMRIB_JSON)])
     cmd.extend(["--targets", ",".join(targets)])
     if extra_args:
@@ -947,6 +962,7 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
 def aggregate_results() -> None:
     # Invoke the aggregation helper to merge outputs from every stage into the
     # consolidated inventory artefacts.
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable or "python3",
         str(ROOT / "tools" / "aggregate.py"),
@@ -1119,6 +1135,7 @@ def write_report(
         else:
             lines.append("No screenshots captured (EyeWitness unavailable or no HTTP services detected).")
 
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
     echo(f"[+] Wrote report to {REPORT_PATH}", essential=True)
 
@@ -1179,7 +1196,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         )
 
     ensure_writable_directory(OUT_DIR)
-    for path in (DISCOVERY_DIR, NMAP_DIR, HARVESTER_DIR, EYEWITNESS_DIR):
+    for path in (
+        DISCOVERY_DIR,
+        NMAP_DIR,
+        HARVESTER_DIR,
+        EYEWITNESS_DIR,
+        MASSCAN_DIR,
+        SMRIB_DIR,
+        REPORT_DIR,
+        LOG_DIR,
+    ):
         ensure_writable_directory(path)
     echo("[+] Output directories verified", essential=True)
 
