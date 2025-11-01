@@ -45,6 +45,7 @@ python3 run_recon.py [options]
 | `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `$SMRIB_PATH` env var or `~/Desktop/RT/smrib.py`). |
 | `--smrib-extra ...` | Additional arguments appended to the `smrib.py` command. Everything after this flag is forwarded. |
 | `--harvester-sources SOURCES` | Comma-separated data sources for theHarvester (default: `all`). |
+| `--harvester-source SOURCE` | Repeatable flag to list individual theHarvester sources (overrides `--harvester-sources`). |
 | `--harvester-limit N` | Result limit per source for theHarvester queries (default: `500`). |
 | `--skip-eyewitness` | Skip the EyeWitness screenshot stage entirely. |
 | `--eyewitness-timeout SECONDS` | HTTP request timeout used by EyeWitness (default: `10`). |

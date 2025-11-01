@@ -169,6 +169,15 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Comma separated sources for theHarvester (default: all).",
     )
     parser.add_argument(
+        "--harvester-source",
+        dest="harvester_source",
+        action="append",
+        help=(
+            "Repeatable option to choose individual theHarvester sources. "
+            "When supplied, overrides --harvester-sources."
+        ),
+    )
+    parser.add_argument(
         "--harvester-limit",
         type=int,
         default=500,
@@ -202,7 +211,22 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Only display essential status messages.",
     )
 
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+
+    if args.harvester_source:
+        sources: List[str] = []
+        for entry in args.harvester_source:
+            for part in entry.split(","):
+                cleaned = part.strip()
+                if cleaned:
+                    sources.append(cleaned)
+
+        if not sources:
+            raise SystemExit("--harvester-source requires at least one source name")
+
+        args.harvester_sources = ",".join(sources)
+
+    return args
 
 
 def build_port_selection(args: argparse.Namespace) -> PortSelection:
