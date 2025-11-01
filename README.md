@@ -21,6 +21,11 @@ Key options:
 * `--port-range <range>` &mdash; specify an explicit port range or comma-separated
   list (for example `1-1024` or `80,443,8080`). When this option is provided it
   replaces `--top-ports`.
+* `--smrib-targets <targets>` &mdash; override the value supplied to `smrib.py`
+  through its `--targets` option. By default the script builds this list from
+  the resolved hosts to scan.
+* `--smrib-json <path>` &mdash; customise the destination of the JSON log produced
+  by `smrib.py` (default: `./Logs/log_hotelasp.json`).
 
 Environment variables:
 

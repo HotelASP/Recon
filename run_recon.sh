@@ -11,6 +11,8 @@ Options:
   --top-ports <n>                 Scan the top N ports (default: 200).
   --port-range <range>            Scan an explicit port range (e.g. 1-1024 or 80,443).
   --smrib-path <path>             Path to smrib.py (default: ~/Desktop/RT/smrib.py).
+  --smrib-targets <targets>       Explicit value for smrib --targets argument (default: hosts to scan).
+  --smrib-json <path>             Destination for smrib JSON log (default: ./Logs/log_hotelasp.json).
   -h, --help                      Show this message and exit.
 
 Environment variables:
@@ -35,6 +37,8 @@ TOP_PORTS=200
 PORT_RANGE=""
 SMRIB_PATH=${SMRIB_PATH:-"$HOME/Desktop/RT/smrib.py"}
 SMRIB_OUTPUT_FLAG=${SMRIB_OUTPUT_FLAG:---output-dir}
+SMRIB_TARGETS_OVERRIDE=""
+SMRIB_JSON_PATH=${SMRIB_JSON_PATH:-"$WORKDIR/Logs/log_hotelasp.json"}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -74,6 +78,24 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       SMRIB_PATH="$2"
+      shift 2
+      ;;
+    --smrib-targets)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --smrib-targets" >&2
+        usage
+        exit 1
+      fi
+      SMRIB_TARGETS_OVERRIDE="$2"
+      shift 2
+      ;;
+    --smrib-json)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --smrib-json" >&2
+        usage
+        exit 1
+      fi
+      SMRIB_JSON_PATH="$2"
       shift 2
       ;;
     -h|--help)
@@ -135,6 +157,9 @@ else
 fi
 
 mkdir -p "$OUT_DIR" "$NMAP_DIR" "$HARV_DIR"
+if [[ -n "$SMRIB_JSON_PATH" ]]; then
+  mkdir -p "$(dirname "$SMRIB_JSON_PATH")"
+fi
 
 if [ ! -f "$TARGETS_FILE" ]; then
   echo "targets.txt not found." >&2; exit 1
@@ -185,6 +210,9 @@ case "$SCANNER" in
     if [[ -n "$SMRIB_OUTPUT_FLAG" ]]; then
       SMRIB_CMD+=("$SMRIB_OUTPUT_FLAG" "$NMAP_DIR")
     fi
+    if [[ -n "$SMRIB_JSON_PATH" ]]; then
+      SMRIB_CMD+=(--json "$SMRIB_JSON_PATH")
+    fi
     SMRIB_CMD+=("${SMRIB_PORT_ARGS[@]}")
     if [[ -n "${SMRIB_EXTRA_ARGS:-}" ]]; then
       IFS_SAVE=$IFS
@@ -194,7 +222,19 @@ case "$SCANNER" in
       IFS=$IFS_SAVE
       SMRIB_CMD+=("${EXTRA_ARGS[@]}")
     fi
-    SMRIB_CMD+=("${HOSTS_TO_SCAN[@]}")
+    if [[ -n "$SMRIB_TARGETS_OVERRIDE" ]]; then
+      SMRIB_CMD+=(--targets "$SMRIB_TARGETS_OVERRIDE")
+    else
+      if [[ ${#HOSTS_TO_SCAN[@]} -eq 0 ]]; then
+        echo "No hosts available for smrib targets" >&2
+        exit 1
+      fi
+      IFS_SAVE=$IFS
+      IFS=,
+      SMRIB_TARGETS_VALUE="${HOSTS_TO_SCAN[*]}"
+      IFS=$IFS_SAVE
+      SMRIB_CMD+=(--targets "$SMRIB_TARGETS_VALUE")
+    fi
     "${SMRIB_CMD[@]}" || true
     ;;
   masscan)
