@@ -121,6 +121,7 @@ class PortSelection:
     nmap_args: List[str]
     smrib_args: List[str]
     fallback_range: Optional[str]
+    forced_ports: Optional[List[int]] = None
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -146,6 +147,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--port-range",
         help="Explicit port range or comma separated list (default: 1-65535).",
+    )
+    parser.add_argument(
+        "--ports",
+        help="Comma separated list of TCP ports to scan and fingerprint.",
     )
     parser.add_argument(
         "--masscan-rate",
@@ -235,6 +240,39 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
     # defaults to the top 100 ports to keep the initial scan focused.
     explicit_top_ports = args.top_ports is not None
     top_ports = args.top_ports
+
+    if args.ports and args.port_range:
+        raise SystemExit("Specify either --ports or --port-range, not both.")
+    if args.ports and explicit_top_ports:
+        raise SystemExit("Specify either --ports or --top-ports, not both.")
+
+    if args.ports:
+        ports: List[int] = []
+        for entry in args.ports.split(","):
+            part = entry.strip()
+            if not part:
+                continue
+            if not part.isdigit():
+                raise SystemExit("--ports must contain only integers separated by commas")
+            value = int(part)
+            if not 1 <= value <= 65535:
+                raise SystemExit("--ports values must be between 1 and 65535")
+            ports.append(value)
+
+        if not ports:
+            raise SystemExit("--ports requires at least one port number")
+
+        unique_ports = sorted(dict.fromkeys(ports))
+        port_list = ",".join(str(port) for port in unique_ports)
+
+        return PortSelection(
+            description=f"ports {port_list}",
+            masscan_args=["-p", port_list],
+            nmap_args=["-p", port_list],
+            smrib_args=["--ports", port_list],
+            fallback_range=None,
+            forced_ports=unique_ports,
+        )
 
     if not args.port_range and not explicit_top_ports:
         top_ports = 100
@@ -471,6 +509,7 @@ def merge_discovered_hosts(
     smrib_results: Mapping[str, Set[int]],
     nmap_results: Mapping[str, Set[int]],
     fallback_range: Optional[str],
+    forced_ports: Optional[Sequence[int]],
 ) -> Dict[str, Optional[Set[int]]]:
     # Consolidate discovery findings and, if nothing was found, fall back to the
     # requested port range so the fingerprinting phase still runs.
@@ -479,6 +518,18 @@ def merge_discovered_hosts(
     for result in (masscan_results, smrib_results, nmap_results):
         for ip, ports in result.items():
             merged.setdefault(ip, set()).update(ports)
+
+    if forced_ports:
+        forced_sorted = sorted(dict.fromkeys(forced_ports))
+        forced_set = set(forced_sorted)
+        overridden: Dict[str, Optional[Set[int]]] = {}
+        for host in merged:
+            overridden[host] = set(forced_set)
+
+        for target in targets:
+            overridden.setdefault(target, set(forced_set))
+
+        return overridden
 
     if not merged:
         for target in targets:
@@ -837,6 +888,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         smrib_results,
         nmap_results,
         port_selection.fallback_range,
+        port_selection.forced_ports,
     )
 
     display_discovered_hosts(discovered_hosts, port_selection.fallback_range)
