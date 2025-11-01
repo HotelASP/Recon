@@ -310,6 +310,13 @@ def parse_nmap_dir(nmap_dir: str) -> Dict[str, Dict[str, Iterable[Dict[str, Opti
                     output = script.get("output")
                     if script_id or output:
                         scripts.append({"id": script_id, "output": output})
+                    if (
+                        banner is None
+                        and script_id
+                        and script_id.lower() == "banner"
+                        and output
+                    ):
+                        banner = output.strip()
 
                 info["nmap_ports"].append(
                     {
