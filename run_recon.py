@@ -316,6 +316,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Result limit for theHarvester queries (default: 500).",
     )
     parser.add_argument(
+        "--search-related-data",
+        action="store_true",
+        help=(
+            "Iteratively fingerprint hosts discovered via theHarvester for up to three "
+            "rounds before aggregating results."
+        ),
+    )
+    parser.add_argument(
         "--skip-eyewitness",
         action="store_true",
         help="Skip the EyeWitness screenshot stage.",
@@ -839,6 +847,12 @@ def run_nmap_fingerprinting(
         run_command(prefix_command(cmd, use_sudo), description=description)
 
 
+def _normalise_target(value: str) -> str:
+    """Return a consistent identifier for tracking processed targets."""
+
+    return value.strip().lower()
+
+
 def _registered_domain(candidate: str) -> Optional[str]:
     """Return the registrable domain component of *candidate* if possible."""
 
@@ -871,6 +885,17 @@ def extract_domains_from_nmap() -> Set[str]:
             domain = _registered_domain(hostname)
             if domain:
                 domains.add(domain)
+    return domains
+
+
+def _extract_registered_domains_from_hosts(hosts: Iterable[str]) -> Set[str]:
+    """Derive registrable domains from an iterable of hostnames."""
+
+    domains: Set[str] = set()
+    for host in hosts:
+        domain = _registered_domain(host)
+        if domain:
+            domains.add(domain)
     return domains
 
 
@@ -959,6 +984,23 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
                 subprocess.run(["dig", "+short", "any", domain], stdout=dfile, stderr=subprocess.STDOUT)
 
 
+def _resolve_related_targets(candidates: Iterable[str]) -> List[str]:
+    """Filter and de-duplicate hostnames/IPs extracted from OSINT tools."""
+
+    resolved: List[str] = []
+    seen: Set[str] = set()
+    for candidate in candidates:
+        cleaned = candidate.strip()
+        if not cleaned:
+            continue
+        normalised = _normalise_target(cleaned)
+        if normalised in seen:
+            continue
+        seen.add(normalised)
+        resolved.append(cleaned)
+    return resolved
+
+
 def aggregate_results() -> None:
     # Invoke the aggregation helper to merge outputs from every stage into the
     # consolidated inventory artefacts.
@@ -1006,9 +1048,69 @@ def display_inventory_contents() -> None:
         return
 
     echo(f"[+] Final inventory from {INVENTORY_JSON}:", essential=True)
-    pretty = json.dumps(parsed, indent=2, sort_keys=True)
-    for line in pretty.splitlines():
-        echo(f"    {line}", essential=True)
+    if not isinstance(parsed, list):
+        echo("    Inventory format unexpected – expected a list of hosts.", essential=True)
+        echo("    Raw JSON output follows:", essential=True)
+        pretty = json.dumps(parsed, indent=2, sort_keys=True)
+        for line in pretty.splitlines():
+            echo(f"    {line}", essential=True)
+        return
+
+    if not parsed:
+        echo("    (Inventory empty)", essential=True)
+        return
+
+    for host in parsed:
+        if not isinstance(host, dict):
+            continue
+        ip = host.get("ip", "unknown")
+        echo(f"    Host: {ip}", essential=True)
+        hostnames = host.get("hostnames") or []
+        if hostnames:
+            echo(f"      Hostnames: {', '.join(hostnames)}", essential=True)
+        os_guess = host.get("os") or "Unknown"
+        accuracy = host.get("os_accuracy")
+        if accuracy:
+            echo(f"      Probable OS: {os_guess} (confidence {accuracy}%)", essential=True)
+        else:
+            echo(f"      Probable OS: {os_guess}", essential=True)
+        open_ports = host.get("open_ports") or []
+        if open_ports:
+            ports = ", ".join(str(port) for port in open_ports)
+            echo(f"      Open ports: {ports}", essential=True)
+        services = host.get("services") or []
+        if services:
+            echo("      Services:", essential=True)
+            for service in services:
+                if not isinstance(service, dict):
+                    continue
+                port = service.get("port")
+                name = service.get("service") or "unknown"
+                version = service.get("version")
+                tunnel = service.get("tunnel")
+                banner = service.get("banner")
+                cpes = service.get("cpe") or []
+                scripts = service.get("scripts") or []
+                line = f"        - Port {port}/{service.get('proto') or 'tcp'}: {name}"
+                if tunnel:
+                    line += f" ({tunnel})"
+                if version:
+                    line += f" – {version}"
+                echo(line, essential=True)
+                if banner:
+                    echo(f"          Banner: {banner}", essential=True)
+                if cpes:
+                    echo(f"          CPE: {', '.join(cpes)}", essential=True)
+                if scripts:
+                    for script in scripts:
+                        script_id = script.get("id", "script")
+                        output = script.get("output")
+                        if output:
+                            echo(f"          {script_id}: {output}", essential=True)
+        related = host.get("related_domains") or []
+        if related:
+            echo(f"      Related domains: {', '.join(related)}", essential=True)
+        echo("", essential=True)
 
 
 def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
@@ -1279,10 +1381,82 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     domains = set(target_domains)
     domains.update(nmap_domains)
 
-    if domains:
-        run_harvester(domains, args)
-    else:
+    processed_domains: Set[str] = set()
+    scanned_targets: Set[str] = {_normalise_target(target) for target in targets}
+    for ip in discovered_hosts:
+        scanned_targets.add(_normalise_target(ip))
+
+    if not domains:
         echo("[!] No domains discovered in Nmap XML – skipping theHarvester stage.", essential=True)
+    else:
+        pending_domains = set(domains)
+        iteration = 0
+        max_iterations = 3 if args.search_related_data else 1
+
+        while pending_domains and iteration < max_iterations:
+            iteration += 1
+            iteration_label = (
+                f"[+] theHarvester iteration {iteration}/{max_iterations} for domains: {', '.join(sorted(pending_domains))}"
+            )
+            echo(iteration_label, essential=True)
+            run_harvester(sorted(pending_domains), args)
+            processed_domains.update(domain.lower() for domain in pending_domains)
+
+            if not args.search_related_data:
+                break
+
+            harvester_map = aggregate.parse_harvester_dir(str(HARVESTER_DIR))
+            current_batch = {domain.lower() for domain in pending_domains}
+            new_targets: Set[str] = set()
+            related_domains: Set[str] = set()
+
+            for domain, findings in harvester_map.items():
+                domain_lower = domain.lower()
+                if domain_lower not in current_batch:
+                    continue
+                if domain_lower not in processed_domains:
+                    related_domains.add(domain_lower)
+                if _normalise_target(domain) not in scanned_targets:
+                    new_targets.add(domain)
+                for finding in findings:
+                    candidate = finding.hostname
+                    if candidate and _normalise_target(candidate) not in scanned_targets:
+                        new_targets.add(candidate)
+                    if finding.ip and _normalise_target(finding.ip) not in scanned_targets:
+                        new_targets.add(finding.ip)
+                    related_domains.update(
+                        domain_name.lower()
+                        for domain_name in _extract_registered_domains_from_hosts([finding.hostname])
+                        if domain_name not in processed_domains
+                    )
+
+            if new_targets:
+                resolved_targets = _resolve_related_targets(sorted(new_targets))
+                echo(
+                    f"[+] Fingerprinting {len(resolved_targets)} host(s) discovered via OSINT",
+                    essential=True,
+                )
+                discovery_subset = run_nmap_discovery(resolved_targets, port_selection, use_sudo)
+                for host, ports in discovery_subset.items():
+                    discovered_hosts.setdefault(host, set()).update(ports)
+                display_discovered_hosts(discovery_subset)
+                run_nmap_fingerprinting(discovery_subset, use_sudo)
+                for candidate in resolved_targets:
+                    scanned_targets.add(_normalise_target(candidate))
+                for host in discovery_subset:
+                    scanned_targets.add(_normalise_target(host))
+            else:
+                echo("[!] No new hosts from theHarvester results required fingerprinting.", essential=True)
+
+            new_domain_candidates = set()
+            for domain in related_domains:
+                if domain not in processed_domains:
+                    new_domain_candidates.add(domain)
+
+            pending_domains = {domain for domain in new_domain_candidates if domain not in processed_domains}
+
+            if not pending_domains:
+                echo("[+] No additional domains discovered via OSINT – ending iterative search.", essential=True)
 
     aggregate_results()
 
