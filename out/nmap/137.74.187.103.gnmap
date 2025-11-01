@@ -1,1 +1,0 @@
-# Nmap 7.95 scan initiated Sat Nov  1 10:38:37 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/137.74.187.103 -p 443 137.74.187.103

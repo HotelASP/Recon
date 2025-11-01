@@ -1,4 +1,0 @@
-# Nmap 7.95 scan initiated Sat Nov  1 11:16:39 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/10.0.5.5 10.0.5.5
-Host: 10.0.5.5 (kioptrix3.com)	Status: Up
-Host: 10.0.5.5 (kioptrix3.com)	Ports: 22/open/tcp//ssh//OpenSSH 4.7p1 Debian 8ubuntu1.2 (protocol 2.0)/, 80/open/tcp//http//Apache httpd 2.2.8 ((Ubuntu) PHP|5.2.4-2ubuntu5.6 with Suhosin-Patch)/	Ignored State: closed (998)	Seq Index: 194	IP ID Seq: All zeros
-# Nmap done at Sat Nov  1 11:17:06 2025 -- 1 IP address (1 host up) scanned in 27.32 seconds
