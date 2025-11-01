@@ -152,6 +152,8 @@ def parse_smrib_json(path: str) -> Dict[str, Dict[str, List[int]]]:
             # Fall back to scanning all nested values.
             for nested in value.values():
                 ports.extend(_collect_ports(nested))
+        elif isinstance(value, int):
+            ports.append(value)
         elif isinstance(value, str) and value.isdigit():
             ports.append(int(value))
         return ports
