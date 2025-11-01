@@ -985,6 +985,32 @@ def aggregate_results() -> None:
     run_command(cmd, description=description, check=False)
 
 
+def display_inventory_contents() -> None:
+    """Print the contents of the aggregated inventory for quick inspection."""
+
+    if not INVENTORY_JSON.exists():
+        echo("[!] inventory.json not found – nothing to display.", essential=True)
+        return
+
+    try:
+        raw = INVENTORY_JSON.read_text(encoding="utf-8")
+        parsed = json.loads(raw)
+    except OSError as exc:
+        echo(f"[!] Failed to read {INVENTORY_JSON}: {exc}", essential=True)
+        return
+    except json.JSONDecodeError as exc:
+        echo(
+            f"[!] {INVENTORY_JSON} is not valid JSON (line {exc.lineno}, column {exc.colno}).",
+            essential=True,
+        )
+        return
+
+    echo(f"[+] Final inventory from {INVENTORY_JSON}:", essential=True)
+    pretty = json.dumps(parsed, indent=2, sort_keys=True)
+    for line in pretty.splitlines():
+        echo(f"    {line}", essential=True)
+
+
 def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
     # Walk the aggregated inventory and build a deduplicated list of HTTP(S)
     # endpoints that EyeWitness should visit.
@@ -1262,6 +1288,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     inventory = load_inventory()
     echo(f"[+] Aggregated inventory entries: {len(inventory)}", essential=True)
+    display_inventory_contents()
     urls = collect_http_urls(inventory)
     screenshots = run_eyewitness(urls, args)
 
