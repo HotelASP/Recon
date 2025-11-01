@@ -48,6 +48,30 @@ SMRIB_JSON = OUT_DIR / "smrib.json"
 TARGETS_FILE = ROOT / "targets.txt"
 
 
+TOOL_SUMMARIES = {
+    "Masscan": (
+        "Masscan performs a high-speed TCP SYN sweep to quickly spot responsive "
+        "hosts and their open ports. It favours breadth and speed, trading some "
+        "accuracy for rapid coverage of large target lists."
+    ),
+    "Nmap": (
+        "Nmap is used twice: optionally for discovery and always for in-depth "
+        "fingerprinting. During fingerprinting it runs default scripts, probes "
+        "service banners, and attempts OS detection to build a rich host profile."
+    ),
+    "theHarvester": (
+        "theHarvester enriches the scan by querying OSINT sources for "
+        "subdomains, hostnames, and related infrastructure connected to "
+        "discovered domains."
+    ),
+    "EyeWitness": (
+        "EyeWitness drives a headless browser against detected HTTP(S) services "
+        "to capture screenshots, providing a quick visual triage of exposed "
+        "web interfaces."
+    ),
+}
+
+
 _PRIVILEGE_WARNINGS: Set[str] = set()
 _SILENT_MODE = False
 
@@ -445,7 +469,13 @@ def run_masscan(
     ]
     cmd.extend(port_selection.masscan_args)
     cmd.extend(list(dict.fromkeys(resolved_targets)))
-    success = run_command(prefix_command(cmd, use_sudo), description=f"Masscan discovery ({port_selection.description})")
+    target_count = len(resolved_targets)
+    description = (
+        "Masscan discovery – high-speed TCP SYN sweep "
+        f"across {target_count} target(s) covering {port_selection.description} "
+        f"at {rate} packets/sec"
+    )
+    success = run_command(prefix_command(cmd, use_sudo), description=description)
     if not success:
         return {}
 
@@ -474,7 +504,11 @@ def run_smrib(
     if extra_args:
         cmd.extend(extra_args)
 
-    success = run_command(prefix_command(cmd, use_sudo), description=f"smrib discovery ({port_selection.description})")
+    description = (
+        "smrib discovery – Python-based scanner performing targeted TCP probes "
+        f"across {port_selection.description}"
+    )
+    success = run_command(prefix_command(cmd, use_sudo), description=description)
     if not success:
         return {}
 
@@ -510,7 +544,11 @@ def run_nmap_discovery(
         ]
         cmd.extend(port_selection.nmap_args)
         cmd.append(target)
-        run_command(prefix_command(cmd, use_sudo), description=f"Nmap discovery scan for {target} ({port_selection.description})")
+        port_summary = port_selection.description
+        description = (
+            f"Nmap discovery for {target} – TCP connect/SYN sweep focusing on {port_summary}"
+        )
+        run_command(prefix_command(cmd, use_sudo), description=description)
 
     results = aggregate.parse_nmap_dir(str(DISCOVERY_DIR))
     for ip, data in results.items():
@@ -616,10 +654,18 @@ def run_nmap_fingerprinting(
         if ports:
             port_list = ",".join(str(port) for port in sorted(ports))
             cmd.extend(["-p", port_list])
+            port_scope = f"{len(ports)} discovered port(s)"
         elif fallback_range:
             cmd.extend(["-p", fallback_range])
+            port_scope = f"fallback range {fallback_range}"
+        else:
+            port_scope = "default fallback range"
         cmd.append(target)
-        run_command(prefix_command(cmd, use_sudo), description=f"Nmap fingerprinting for {target}")
+        description = (
+            f"Nmap fingerprinting for {target} – default scripts, version, and OS detection "
+            f"against {port_scope}"
+        )
+        run_command(prefix_command(cmd, use_sudo), description=description)
 
 
 def extract_domains_from_nmap() -> Set[str]:
@@ -700,7 +746,10 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
 
             if json_flag:
                 cmd.extend(json_flag)
-            run_command(cmd, description=f"theHarvester OSINT for {domain}")
+            description = (
+                f"theHarvester OSINT for {domain} – enumerating hosts via sources: {args.harvester_sources}"
+            )
+            run_command(cmd, description=description)
         else:
             echo(
                 f"[!] theHarvester not available – collecting basic DNS data for {domain}",
@@ -733,7 +782,10 @@ def aggregate_results() -> None:
         "--out-csv",
         str(INVENTORY_CSV),
     ]
-    run_command(cmd, description="Aggregating scan outputs", check=False)
+    description = (
+        "Aggregating scan outputs – merging Masscan, Nmap, smrib, and theHarvester artefacts"
+    )
+    run_command(cmd, description=description, check=False)
 
 
 def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
@@ -793,7 +845,10 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
             "-d",
             str(output_dir),
         ]
-        run_command(cmd, description=f"EyeWitness capture for {url}")
+        description = (
+            f"EyeWitness capture for {url} – headless browser screenshot of the HTTP(S) service"
+        )
+        run_command(cmd, description=description)
         screenshots.extend(output_dir.rglob("*.png"))
 
     return screenshots
@@ -838,6 +893,19 @@ def write_report(
     lines.append(f"*Total services recorded*: {total_services}")
     lines.append("")
 
+    lines.append("## Target Scope")
+    if targets:
+        for index, target in enumerate(targets, start=1):
+            lines.append(f"{index}. {target}")
+    else:
+        lines.append("No targets were defined when the report was generated.")
+
+    lines.append("")
+    lines.append("## Tool Activities")
+    for tool, summary in TOOL_SUMMARIES.items():
+        lines.append(f"- **{tool}**: {summary}")
+
+    lines.append("")
     lines.append("## Host Overview")
     if inventory:
         for entry in inventory:
@@ -884,6 +952,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     port_selection = build_port_selection(args)
     targets = load_targets(TARGETS_FILE)
     echo(f"[+] Loaded {len(targets)} target(s) from {TARGETS_FILE}", essential=True)
+    if targets:
+        echo("    Target list (in scanning order):", essential=True)
+        for index, target in enumerate(targets, start=1):
+            echo(f"      {index}. {target}", essential=True)
+        echo(
+            "    Each entry originates from targets.txt; edit that file to adjust the scope.",
+            essential=True,
+        )
 
     ensure_writable_directory(OUT_DIR)
     for path in (DISCOVERY_DIR, NMAP_DIR, HARVESTER_DIR, EYEWITNESS_DIR):
