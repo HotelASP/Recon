@@ -37,6 +37,7 @@ import ipaddress
 import json
 import os
 import re
+import shlex
 import xml.etree.ElementTree as ET
 from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence
 
@@ -432,6 +433,39 @@ def _extract_hostname_and_ip(entry: object) -> Optional[HarvesterFinding]:
     return HarvesterFinding(hostname=hostname, ip=address)
 
 
+def _extract_domain_from_command(command: str) -> Optional[str]:
+    """Return the domain supplied to theHarvester ``-d`` flag, if present."""
+
+    if not command or not command.strip():
+        return None
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.strip().split()
+
+    for index, token in enumerate(tokens):
+        candidate: Optional[str] = None
+        normalized = token.strip()
+        if not normalized:
+            continue
+
+        if normalized in {"-d", "--domain"}:
+            if index + 1 < len(tokens):
+                candidate = tokens[index + 1]
+        elif normalized.startswith("--domain="):
+            candidate = normalized.split("=", 1)[1]
+        elif normalized.startswith("-d") and normalized != "-d":
+            candidate = normalized[2:]
+
+        if candidate:
+            cleaned = _normalise_hostname(candidate)
+            if cleaned:
+                return cleaned
+
+    return None
+
+
 def _extract_domain_from_metadata(metadata: object, fallback: str) -> str:
     if isinstance(metadata, dict):
         for key in HARVESTER_DOMAIN_KEYS:
@@ -442,6 +476,10 @@ def _extract_domain_from_metadata(metadata: object, fallback: str) -> str:
                 nested = _extract_domain_from_metadata(value, fallback)
                 if nested:
                     return nested
+
+        derived = _extract_domain_from_command(str(metadata.get("cmd", "")))
+        if derived:
+            return derived
 
     if isinstance(metadata, str) and metadata.strip():
         return metadata.strip().lower()
