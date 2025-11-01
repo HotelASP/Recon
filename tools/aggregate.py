@@ -255,7 +255,7 @@ def parse_nmap_dir(nmap_dir: str) -> Dict[str, Dict[str, Iterable[Dict[str, Opti
 
             info = inventory.setdefault(
                 address,
-                {"nmap_ports": [], "hostnames": [], "os": None},
+                {"nmap_ports": [], "hostnames": [], "os": None, "os_accuracy": None},
             )
 
             for hostname in host.findall("hostnames/hostname"):
@@ -266,6 +266,7 @@ def parse_nmap_dir(nmap_dir: str) -> Dict[str, Dict[str, Iterable[Dict[str, Opti
             osnode = host.find("os/osmatch")
             if osnode is not None and not info.get("os"):
                 info["os"] = osnode.get("name")
+                info["os_accuracy"] = osnode.get("accuracy")
 
             for port in host.findall("ports/port"):
                 portnum = int(port.get("portid"))
@@ -278,22 +279,53 @@ def parse_nmap_dir(nmap_dir: str) -> Dict[str, Dict[str, Iterable[Dict[str, Opti
                 service_name = service.get("name") if service is not None else None
 
                 version: Optional[str] = None
+                product = None
+                extrainfo = None
+                tunnel = None
+                banner = None
+                ostype = None
+                method = None
                 if service is not None:
-                    version_components = [
-                        service.get(key)
-                        for key in ("product", "version", "extrainfo")
-                        if service.get(key)
-                    ]
-                    if version_components:
-                        version = " ".join(version_components)
+                    product = service.get("product")
+                    version_value = service.get("version")
+                    extrainfo = service.get("extrainfo")
+                    tunnel = service.get("tunnel")
+                    banner = service.get("banner") or service.get("servicefp") or service.get("fingerprint")
+                    ostype = service.get("ostype")
+                    method = service.get("method")
+                    components = [value for value in (product, version_value, extrainfo) if value]
+                    if components:
+                        version = " ".join(components)
+
+                cpes: List[str] = []
+                if service is not None:
+                    for cpe in service.findall("cpe"):
+                        if cpe.text:
+                            cpes.append(cpe.text.strip())
+
+                scripts: List[Dict[str, Optional[str]]] = []
+                for script in port.findall("script"):
+                    script_id = script.get("id")
+                    output = script.get("output")
+                    if script_id or output:
+                        scripts.append({"id": script_id, "output": output})
 
                 info["nmap_ports"].append(
                     {
                         "port": portnum,
                         "proto": proto,
                         "state": state,
+                        "reason": state_element.get("reason") if state_element is not None else None,
                         "service": service_name,
                         "version": version,
+                        "product": product,
+                        "extrainfo": extrainfo,
+                        "tunnel": tunnel,
+                        "banner": banner,
+                        "ostype": ostype,
+                        "method": method,
+                        "cpe": cpes,
+                        "scripts": scripts,
                     }
                 )
 
@@ -530,14 +562,27 @@ def build_inventory(
             ),
             "services": [
                 {
-                    "port": port_entry["port"],
+                    "port": port_entry.get("port"),
+                    "proto": port_entry.get("proto"),
+                    "state": port_entry.get("state"),
+                    "reason": port_entry.get("reason"),
                     "service": port_entry.get("service"),
                     "version": port_entry.get("version"),
+                    "product": port_entry.get("product"),
+                    "extrainfo": port_entry.get("extrainfo"),
+                    "tunnel": port_entry.get("tunnel"),
+                    "banner": port_entry.get("banner"),
+                    "ostype": port_entry.get("ostype"),
+                    "method": port_entry.get("method"),
+                    "cpe": port_entry.get("cpe", []),
+                    "scripts": port_entry.get("scripts", []),
                 }
                 for port_entry in data.get("nmap_ports", [])
             ],
             "hostnames": sorted(set(data.get("hostnames", []))),
             "os": data.get("os"),
+            "os_accuracy": data.get("os_accuracy"),
+            "related_domains": [],
         }
 
     # Enrich the inventory with Masscan results to ensure fast-scan findings are
@@ -550,6 +595,8 @@ def build_inventory(
                 "services": [],
                 "hostnames": [],
                 "os": None,
+                "os_accuracy": None,
+                "related_domains": [],
             }
         else:
             inventory[ip]["open_ports"] = sorted(
@@ -567,6 +614,8 @@ def build_inventory(
                 "services": [],
                 "hostnames": [],
                 "os": None,
+                "os_accuracy": None,
+                "related_domains": [],
             }
         else:
             inventory[ip]["open_ports"] = sorted(
@@ -598,9 +647,18 @@ def build_inventory(
                 entry = inventory[target_ip]
                 if finding.hostname not in entry["hostnames"]:
                     entry["hostnames"].append(finding.hostname)
+                domain_label = domain_lower
+                if domain_label not in entry["related_domains"]:
+                    entry["related_domains"].append(domain_label)
+
+            if finding.ip and finding.ip in inventory:
+                rel_entry = inventory[finding.ip]
+                if domain_lower not in rel_entry["related_domains"]:
+                    rel_entry["related_domains"].append(domain_lower)
 
     for entry in inventory.values():
         entry["hostnames"] = sorted(set(entry.get("hostnames", [])))
+        entry["related_domains"] = sorted(set(entry.get("related_domains", [])))
 
     return inventory
 
@@ -617,18 +675,51 @@ def export_csv(inv: Dict[str, Dict[str, Optional[Iterable]]], outpath: str) -> N
 
     with open(outpath, "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        writer.writerow(["ip", "hostnames", "os", "open_ports", "services"])
+        writer.writerow(["ip", "hostnames", "os", "os_accuracy", "open_ports", "services", "related_domains"])
 
         for ip, entry in inv.items():
             hostnames = ";".join(entry.get("hostnames", []))
             osname = entry.get("os") or ""
+            os_accuracy = entry.get("os_accuracy") or ""
             ports = ";".join(str(port) for port in entry.get("open_ports", []))
-            services = ";".join(
-                f"{service.get('port')}:{service.get('service') or ''}:{service.get('version') or ''}"
-                for service in entry.get("services", [])
-            )
+            service_descriptions = []
+            for service in entry.get("services", []) or []:
+                if not isinstance(service, dict):
+                    continue
+                summary_parts = [
+                    f"{service.get('port')}/{service.get('proto') or ''}".strip("/"),
+                    service.get("service") or "",
+                ]
+                version = service.get("version")
+                if version:
+                    summary_parts.append(version)
+                tunnel = service.get("tunnel")
+                if tunnel:
+                    summary_parts.append(f"tunnel={tunnel}")
+                banner = service.get("banner")
+                if banner:
+                    summary_parts.append(f"banner={banner}")
+                cpes = service.get("cpe") or []
+                if cpes:
+                    summary_parts.append(f"cpe={'|'.join(cpes)}")
+                scripts = service.get("scripts") or []
+                if scripts:
+                    script_bits = []
+                    for script in scripts:
+                        if not isinstance(script, dict):
+                            continue
+                        script_id = script.get("id") or "script"
+                        output = (script.get("output") or "").strip()
+                        if output:
+                            script_bits.append(f"{script_id}={output}")
+                    if script_bits:
+                        summary_parts.append(f"scripts={'|'.join(script_bits)}")
+                service_descriptions.append(" ".join(part for part in summary_parts if part))
 
-            writer.writerow([ip, hostnames, osname, ports, services])
+            services = ";".join(service_descriptions)
+            related_domains = ";".join(entry.get("related_domains", []))
+
+            writer.writerow([ip, hostnames, osname, os_accuracy, ports, services, related_domains])
 
 
 def main() -> None:
