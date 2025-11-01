@@ -1,0 +1,36 @@
+# Nmap 7.95 scan initiated Sat Nov  1 16:17:27 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 21,80,443 160.153.248.110
+Nmap scan report for 110.248.153.160.host.secureserver.net (160.153.248.110)
+Host is up (0.025s latency).
+
+PORT    STATE SERVICE  VERSION
+21/tcp  open  ftp      Microsoft ftpd
+| ftp-syst: 
+|_  SYST: Windows_NT
+| ssl-cert: Subject: commonName=WMSvc-SHA2-S160-153-248-11
+| Not valid before: 2021-01-04T13:14:05
+|_Not valid after:  2031-01-02T13:14:05
+|_ssl-date: 2025-11-01T16:17:50+00:00; 0s from scanner time.
+80/tcp  open  http     Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)
+|_http-server-header: Microsoft-HTTPAPI/2.0
+|_http-title: Not Found
+443/tcp open  ssl/http Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)
+| ssl-cert: Subject: commonName=localhost
+| Subject Alternative Name: DNS:localhost
+| Not valid before: 2021-01-05T10:55:57
+|_Not valid after:  2026-01-05T00:00:00
+| tls-alpn: 
+|   h2
+|_  http/1.1
+|_http-title: Not Found
+|_http-server-header: Microsoft-HTTPAPI/2.0
+|_ssl-date: 2025-11-01T16:17:49+00:00; 0s from scanner time.
+Warning: OSScan results may be unreliable because we could not find at least 1 open and 1 closed port
+Device type: bridge|VoIP adapter|general purpose
+Running (JUST GUESSING): Oracle Virtualbox (98%), Slirp (98%), AT&T embedded (95%), QEMU (94%)
+OS CPE: cpe:/o:oracle:virtualbox cpe:/a:danny_gasparovski:slirp cpe:/a:qemu:qemu
+Aggressive OS guesses: Oracle Virtualbox Slirp NAT bridge (98%), AT&T BGW210 voice gateway (95%), QEMU user mode network gateway (94%)
+No exact OS matches for host (test conditions non-ideal).
+Service Info: OS: Windows; CPE: cpe:/o:microsoft:windows
+
+OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+# Nmap done at Sat Nov  1 16:17:50 2025 -- 1 IP address (1 host up) scanned in 22.64 seconds

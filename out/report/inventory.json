@@ -1,0 +1,31 @@
+[
+  {
+    "ip": "160.153.248.110",
+    "open_ports": [
+      21,
+      80,
+      443
+    ],
+    "services": [
+      {
+        "port": 21,
+        "service": "ftp",
+        "version": "Microsoft ftpd"
+      },
+      {
+        "port": 80,
+        "service": "http",
+        "version": "Microsoft HTTPAPI httpd 2.0 SSDP/UPnP"
+      },
+      {
+        "port": 443,
+        "service": "http",
+        "version": "Microsoft HTTPAPI httpd 2.0 SSDP/UPnP"
+      }
+    ],
+    "hostnames": [
+      "110.248.153.160.host.secureserver.net"
+    ],
+    "os": "Oracle Virtualbox Slirp NAT bridge"
+  }
+]
