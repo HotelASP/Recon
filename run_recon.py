@@ -1214,8 +1214,19 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     run_nmap_fingerprinting(discovered_hosts, use_sudo)
 
-    domains = extract_domains_from_nmap()
-    domains.update(extract_domains_from_targets(targets))
+    target_domains = extract_domains_from_targets(targets)
+    nmap_domains = extract_domains_from_nmap()
+
+    # When the user supplied at least one domain target, restrict harvested
+    # domains to that set. This avoids launching extremely broad OSINT queries
+    # against hosting provider domains that were only observed via reverse DNS
+    # (for example ``secureserver.net`` when targeting ``hotelasp.com``).
+    if target_domains:
+        nmap_domains = {domain for domain in nmap_domains if domain in target_domains}
+
+    domains = set(target_domains)
+    domains.update(nmap_domains)
+
     if domains:
         run_harvester(domains, args)
     else:
