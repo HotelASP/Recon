@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Sat Nov  1 15:47:18 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 80 160.153.248.110" start="1762012038" startstr="Sat Nov  1 15:47:18 2025" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1" services="80"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<hosthint><status state="up" reason="unknown-response" reason_ttl="0"/>
+<address addr="160.153.248.110" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+</hosthint>
+<host starttime="1762012039" endtime="1762012054"><status state="up" reason="reset" reason_ttl="255"/>
+<address addr="160.153.248.110" addrtype="ipv4"/>
+<hostnames>
+<hostname name="110.248.153.160.host.secureserver.net" type="PTR"/>
+</hostnames>
+<ports><port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="http" product="Microsoft HTTPAPI httpd" version="2.0" extrainfo="SSDP/UPnP" ostype="Windows" method="probed" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service><script id="http-title" output="Not Found"><elem key="title">Not Found</elem>
+</script><script id="http-server-header" output="Microsoft-HTTPAPI/2.0"><elem>Microsoft-HTTPAPI/2.0</elem>
+</script></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="80"/>
+<osmatch name="Oracle Virtualbox Slirp NAT bridge" accuracy="98" line="98665">
+<osclass type="bridge" vendor="Oracle" osfamily="Virtualbox" accuracy="98"><cpe>cpe:/o:oracle:virtualbox</cpe></osclass>
+<osclass type="bridge" vendor="Slirp" osfamily="Slirp" accuracy="98"><cpe>cpe:/a:danny_gasparovski:slirp</cpe></osclass>
+</osmatch>
+<osmatch name="AT&amp;T BGW210 voice gateway" accuracy="95" line="9785">
+<osclass type="VoIP adapter" vendor="AT&amp;T" osfamily="embedded" accuracy="95"/>
+</osmatch>
+<osmatch name="QEMU user mode network gateway" accuracy="94" line="100506">
+<osclass type="general purpose" vendor="QEMU" osfamily="QEMU" accuracy="94"><cpe>cpe:/a:qemu:qemu</cpe></osclass>
+</osmatch>
+</os>
+<tcpsequence index="17" difficulty="Good luck!" values="463DB601,463FAA01,4640A401,46419E01,46429801,46439201"/>
+<ipidsequence class="Incremental" values="AEDF,AEE0,AEE1,AEE2,AEE3,AEE4"/>
+<tcptssequence class="none returned (unsupported)"/>
+<times srtt="21864" rttvar="27503" to="131876"/>
+</host>
+<runstats><finished time="1762012054" timestr="Sat Nov  1 15:47:34 2025" summary="Nmap done at Sat Nov  1 15:47:34 2025; 1 IP address (1 host up) scanned in 15.74 seconds" elapsed="15.74" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

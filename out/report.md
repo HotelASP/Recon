@@ -1,10 +1,10 @@
 # Reconnaissance Report
 
-*Generated*: 2025-11-01 15:43 UTC
+*Generated*: 2025-11-01 15:47 UTC
 *Discovery scanner*: smrib (ports 80-80)
 *Targets*: hotelasp.com
-*Hosts in inventory*: 0
-*Total services recorded*: 0
+*Hosts in inventory*: 1
+*Total services recorded*: 1
 
 ## Target Scope
 1. hotelasp.com
@@ -16,10 +16,10 @@
 - **EyeWitness**: EyeWitness drives a headless browser against detected HTTP(S) services to capture screenshots, providing a quick visual triage of exposed web interfaces.
 
 ## Host Overview
-No aggregated inventory was generated.
+- **160.153.248.110** – Hostnames: 110.248.153.160.host.secureserver.net; Ports: 80; OS: Oracle Virtualbox Slirp NAT bridge
 
 ## Discovery Summary
-- hotelasp.com: no open ports discovered
+- 160.153.248.110: 80
 
 ## Screenshots
 No screenshots captured (EyeWitness unavailable or no HTTP services detected).
