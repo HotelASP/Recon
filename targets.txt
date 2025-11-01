@@ -1,2 +1,3 @@
-hackthissite.org
-scanme.nmap.org
+#hackthissite.org
+#scanme.nmap.org
+10.0.5.5
