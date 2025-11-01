@@ -829,7 +829,7 @@ def run_nmap_fingerprinting(
         outbase = NMAP_DIR / sanitized
         cmd = [
             "nmap",
-            "-sC",
+            "--script=default,banner",
             "-sV",
             "-O",
             "-T4",
