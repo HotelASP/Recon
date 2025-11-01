@@ -102,6 +102,101 @@ def parse_masscan_json(path: str) -> Dict[str, Dict[str, List[int]]]:
     return hosts
 
 
+def parse_smrib_json(path: str) -> Dict[str, Dict[str, List[int]]]:
+    """Read an smrib JSON export and return a mapping of IPs to port numbers.
+
+    The smrib tool does not have an officially documented JSON schema, so the
+    parser is intentionally defensive.  It walks the decoded JSON structure and
+    attempts to associate any values that look like IP addresses with port
+    numbers contained in the same object hierarchy.
+
+    Parameters
+    ----------
+    path:
+        Location of the JSON log produced by ``smrib.py``.
+
+    Returns
+    -------
+    dict
+        Keys are IP address strings.  Values are dictionaries containing a
+        ``smrib_ports`` list with the discovered port numbers in ascending
+        order.
+    """
+
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return {}
+
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except Exception:
+        return {}
+
+    hosts: Dict[str, Dict[str, List[int]]] = {}
+
+    def _collect_ports(value: object) -> List[int]:
+        ports: List[int] = []
+        if isinstance(value, list):
+            for item in value:
+                ports.extend(_collect_ports(item))
+        elif isinstance(value, dict):
+            if "port" in value and value["port"] is not None:
+                candidate = value["port"]
+                if isinstance(candidate, int):
+                    ports.append(candidate)
+                elif isinstance(candidate, str) and candidate.isdigit():
+                    ports.append(int(candidate))
+            for key in ("ports", "services", "open_ports"):
+                if key in value:
+                    ports.extend(_collect_ports(value[key]))
+            # Fall back to scanning all nested values.
+            for nested in value.values():
+                ports.extend(_collect_ports(nested))
+        elif isinstance(value, str) and value.isdigit():
+            ports.append(int(value))
+        return ports
+
+    def _traverse(node: object, current_ip: Optional[str] = None) -> None:
+        if isinstance(node, dict):
+            ip_value: Optional[str] = None
+            for key in ("ip", "host", "address", "ip_address"):
+                candidate = node.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    candidate = candidate.strip()
+                    try:
+                        ipaddress.ip_address(candidate)
+                        ip_value = candidate
+                        break
+                    except ValueError:
+                        continue
+
+            ports = _collect_ports(node.get("ports")) if "ports" in node else []
+            if not ports and "services" in node:
+                ports = _collect_ports(node["services"])
+            if not ports and "open_ports" in node:
+                ports = _collect_ports(node["open_ports"])
+            if not ports and "port" in node:
+                ports = _collect_ports(node["port"])
+
+            use_ip = ip_value or current_ip
+            if use_ip and ports:
+                entry = hosts.setdefault(use_ip, {"smrib_ports": []})
+                entry.setdefault("smrib_ports", [])
+                entry["smrib_ports"] = sorted(
+                    set(entry["smrib_ports"]) | set(ports)
+                )
+
+            for value in node.values():
+                _traverse(value, ip_value or current_ip)
+        elif isinstance(node, list):
+            for item in node:
+                _traverse(item, current_ip)
+
+    _traverse(data)
+
+    return hosts
+
+
 def parse_nmap_dir(nmap_dir: str) -> Dict[str, Dict[str, Iterable[Dict[str, Optional[str]]]]]:
     """Load one or more Nmap XML files and extract host information.
 
@@ -412,6 +507,7 @@ def parse_harvester_dir(harv_dir: str) -> Dict[str, List[HarvesterFinding]]:
 def build_inventory(
     nmap_inv: Dict[str, Dict[str, Iterable[Dict[str, Optional[str]]]]],
     masscan_inv: Dict[str, Dict[str, List[int]]],
+    smrib_inv: Dict[str, Dict[str, List[int]]],
     harv_map: Dict[str, List[HarvesterFinding]],
 ) -> Dict[str, Dict[str, Optional[Iterable]]]:
     """Merge the tool-specific outputs into a unified inventory structure."""
@@ -457,6 +553,23 @@ def build_inventory(
             inventory[ip]["open_ports"] = sorted(
                 set(inventory[ip].get("open_ports", []))
                 | set(masscan_data.get("masscan_ports", []))
+            )
+
+    # Merge smrib discoveries so that ports identified by that scanner are
+    # reflected even if Nmap and Masscan missed them.
+    for ip, smrib_data in smrib_inv.items():
+        if ip not in inventory:
+            inventory[ip] = {
+                "ip": ip,
+                "open_ports": smrib_data.get("smrib_ports", []),
+                "services": [],
+                "hostnames": [],
+                "os": None,
+            }
+        else:
+            inventory[ip]["open_ports"] = sorted(
+                set(inventory[ip].get("open_ports", []))
+                | set(smrib_data.get("smrib_ports", []))
             )
 
     # theHarvester focuses on domain names; use its discoveries to supplement
@@ -528,6 +641,11 @@ def main() -> None:
     parser.add_argument("--nmap-dir", default="out/nmap", help="Directory with Nmap XML files.")
     parser.add_argument("--masscan-json", default="out/masscan.json", help="Masscan JSON results file.")
     parser.add_argument(
+        "--smrib-json",
+        default="out/smrib.json",
+        help="JSON log produced by smrib.py (if used).",
+    )
+    parser.add_argument(
         "--harv-dir",
         default="out/harvester",
         help="Directory containing theHarvester text exports.",
@@ -538,10 +656,16 @@ def main() -> None:
     args = parser.parse_args()
 
     masscan_results = parse_masscan_json(args.masscan_json)
+    smrib_results = parse_smrib_json(args.smrib_json)
     nmap_results = parse_nmap_dir(args.nmap_dir)
     harvester_results = parse_harvester_dir(args.harv_dir)
 
-    inventory = build_inventory(nmap_results, masscan_results, harvester_results)
+    inventory = build_inventory(
+        nmap_results,
+        masscan_results,
+        smrib_results,
+        harvester_results,
+    )
 
     os.makedirs(os.path.dirname(args.out_json), exist_ok=True)
     export_json(inventory, args.out_json)
