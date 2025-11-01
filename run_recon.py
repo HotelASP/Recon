@@ -1074,6 +1074,19 @@ def _registered_domain(candidate: str) -> Optional[str]:
     return ".".join(parts[-2:])
 
 
+def _domain_is_permitted(candidate: str, permitted: Set[str]) -> bool:
+    """Return ``True`` when *candidate* belongs to one of the permitted domains."""
+
+    if not permitted:
+        return False
+
+    registrable = _registered_domain(candidate)
+    if not registrable:
+        return False
+
+    return registrable.lower() in permitted
+
+
 def extract_domains_from_nmap() -> Set[str]:
     # Parse the Nmap XML output to collect second-level domains that can be fed
     # into theHarvester for OSINT enrichment.
@@ -1597,17 +1610,22 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     run_nmap_fingerprinting(discovered_hosts, use_sudo)
 
     target_domains = extract_domains_from_targets(targets)
+    permitted_domains = {domain.lower() for domain in target_domains}
     nmap_domains = extract_domains_from_nmap()
 
-    # When the user supplied at least one domain target, restrict harvested
-    # domains to that set. This avoids launching extremely broad OSINT queries
-    # against hosting provider domains that were only observed via reverse DNS
-    # (for example ``secureserver.net`` when targeting ``hotelasp.com``).
-    if target_domains:
-        nmap_domains = {domain for domain in nmap_domains if domain in target_domains}
-
-    domains = set(target_domains)
-    domains.update(nmap_domains)
+    # Only consider Nmap-discovered domains when they share a registrable
+    # domain with the explicit targets. This prevents follow-up OSINT queries
+    # against unrelated hosting providers that appear via reverse DNS.
+    if permitted_domains:
+        nmap_domains = {
+            domain
+            for domain in nmap_domains
+            if _domain_is_permitted(domain, permitted_domains)
+        }
+        domains = set(target_domains)
+        domains.update(nmap_domains)
+    else:
+        domains = set()
     all_domains: Set[str] = set(domains)
 
     processed_domains: Set[str] = set()
@@ -1636,7 +1654,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 break
 
             harvester_map = aggregate.parse_harvester_dir(str(HARVESTER_DIR))
-            all_domains.update(harvester_map.keys())
+            all_domains.update(
+                domain
+                for domain in harvester_map.keys()
+                if _domain_is_permitted(domain, permitted_domains)
+            )
             current_batch = {domain.lower() for domain in pending_domains}
             new_targets: Set[str] = set()
             related_domains: Set[str] = set()
@@ -1645,23 +1667,31 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 domain_lower = domain.lower()
                 if domain_lower not in current_batch:
                     continue
-                if domain_lower not in processed_domains:
-                    related_domains.add(domain_lower)
+                if not _domain_is_permitted(domain_lower, permitted_domains):
+                    continue
+
                 if _normalise_target(domain) not in scanned_targets:
                     new_targets.add(domain)
+
                 for finding in findings:
                     candidate = finding.hostname
-                    if candidate:
-                        all_domains.add(candidate)
-                    if candidate and _normalise_target(candidate) not in scanned_targets:
+                    if not candidate or not _domain_is_permitted(candidate, permitted_domains):
+                        continue
+
+                    all_domains.add(candidate)
+
+                    normalised_candidate = _normalise_target(candidate)
+                    if normalised_candidate not in scanned_targets:
                         new_targets.add(candidate)
-                    if finding.ip and _normalise_target(finding.ip) not in scanned_targets:
-                        new_targets.add(finding.ip)
-                    related_domains.update(
-                        domain_name.lower()
-                        for domain_name in _extract_registered_domains_from_hosts([finding.hostname])
-                        if domain_name not in processed_domains
-                    )
+
+                    if finding.ip:
+                        normalised_ip = _normalise_target(finding.ip)
+                        if normalised_ip not in scanned_targets:
+                            new_targets.add(finding.ip)
+
+                    candidate_domain = _registered_domain(candidate)
+                    if candidate_domain:
+                        related_domains.add(candidate_domain.lower())
 
             if new_targets:
                 resolved_targets = _resolve_related_targets(sorted(new_targets))
@@ -1681,12 +1711,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             else:
                 echo("[!] No new hosts from theHarvester results required fingerprinting.", essential=True)
 
-            new_domain_candidates = set()
-            for domain in related_domains:
-                if domain not in processed_domains:
-                    new_domain_candidates.add(domain)
+            new_domain_candidates = {
+                domain
+                for domain in related_domains
+                if domain not in processed_domains
+                and _domain_is_permitted(domain, permitted_domains)
+            }
 
-            pending_domains = {domain for domain in new_domain_candidates if domain not in processed_domains}
+            pending_domains = {
+                domain for domain in new_domain_candidates if domain not in processed_domains
+            }
             all_domains.update(new_domain_candidates)
 
             if not pending_domains:
