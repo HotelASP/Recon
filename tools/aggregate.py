@@ -675,6 +675,19 @@ def main() -> None:
 
     print(f"Wrote {args.out_json} and {args.out_csv}")
 
+    def _sort_key(ip: str) -> tuple:
+        try:
+            return (0, ipaddress.ip_address(ip))
+        except ValueError:
+            return (1, ip)
+
+    for ip in sorted(inventory, key=_sort_key):
+        ports = sorted({port for port in inventory[ip].get("open_ports", []) if port is not None})
+        if not ports:
+            continue
+        for port in ports:
+            print(f"{ip} {port}")
+
 
 if __name__ == "__main__":
     main()
