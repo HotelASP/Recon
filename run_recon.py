@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import ipaddress
 import json
 import os
@@ -29,7 +30,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, TextIO
 
 from tools import aggregate
 
@@ -46,6 +47,7 @@ REPORT_PATH = OUT_DIR / "report.md"
 MASSCAN_JSON = OUT_DIR / "masscan.json"
 SMRIB_JSON = OUT_DIR / "smrib.json"
 TARGETS_FILE = ROOT / "targets.txt"
+LOG_PATH = OUT_DIR / "recon.log"
 
 
 TOOL_SUMMARIES = {
@@ -74,11 +76,61 @@ TOOL_SUMMARIES = {
 
 _PRIVILEGE_WARNINGS: Set[str] = set()
 _SILENT_MODE = False
+_LOG_FILE: Optional[TextIO] = None
+
+
+def _ensure_log_file() -> TextIO:
+    """Return an open handle to the workflow log file, creating it on demand."""
+
+    global _LOG_FILE
+    if _LOG_FILE is None:
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
+        _LOG_FILE = LOG_PATH.open("w", encoding="utf-8")
+        _LOG_FILE.write("=" * 72 + "\n")
+        _LOG_FILE.write(f"Reconnaissance run started {timestamp}\n")
+        _LOG_FILE.write("=" * 72 + "\n")
+        _LOG_FILE.flush()
+    return _LOG_FILE
+
+
+def _close_log_file() -> None:
+    """Close the log file when the interpreter exits."""
+
+    global _LOG_FILE
+    if _LOG_FILE is not None:
+        _LOG_FILE.close()
+        _LOG_FILE = None
+
+
+atexit.register(_close_log_file)
+
+
+def _log_message(message: str) -> None:
+    """Append a formatted message to the log file."""
+
+    handle = _ensure_log_file()
+    if message.endswith("\n"):
+        handle.write(message)
+    else:
+        handle.write(f"{message}\n")
+    handle.flush()
+
+
+def _log_stream_output(text: str) -> None:
+    """Record raw subprocess output in the log file."""
+
+    handle = _ensure_log_file()
+    handle.write(text)
+    if not text.endswith("\n"):
+        handle.write("\n")
+    handle.flush()
 
 
 def echo(message: str, *, essential: bool = False) -> None:
-    """Print a message unless running in silent mode."""
+    """Print a message unless running in silent mode, always logging it."""
 
+    _log_message(message)
     if not _SILENT_MODE or essential or message.startswith("[!]"):
         print(message)
 
@@ -394,13 +446,38 @@ def run_command(cmd: List[str], *, description: str, check: bool = False) -> boo
         echo("  Command:")
         echo(f"    {' '.join(cmd)}")
     try:
-        completed = subprocess.run(cmd, check=check)
-        return completed.returncode == 0
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
     except FileNotFoundError:
         echo(f"[!] Command not found: {cmd[0]}", essential=True)
-    except subprocess.CalledProcessError as exc:
-        echo(f"[!] Command failed with exit code {exc.returncode}", essential=True)
-    return False
+        return False
+    except OSError as exc:
+        echo(f"[!] Unable to execute {cmd[0]}: {exc}", essential=True)
+        return False
+
+    output_chunks: List[str] = []
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        output_chunks.append(line)
+        _log_stream_output(line)
+        if not _SILENT_MODE:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+    proc.stdout.close()
+    return_code = proc.wait()
+
+    if return_code != 0:
+        message = f"[!] Command failed with exit code {return_code}"
+        echo(message, essential=True)
+        if check:
+            raise subprocess.CalledProcessError(return_code, cmd, output="".join(output_chunks))
+        return False
+
+    return True
 
 
 def run_masscan(
@@ -1010,6 +1087,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         f"[+] Recon workflow completed. Inventory: {INVENTORY_JSON}, CSV: {INVENTORY_CSV}",
         essential=True,
     )
+    echo(f"[+] Full console output recorded in {LOG_PATH}", essential=True)
 
 
 if __name__ == "__main__":
