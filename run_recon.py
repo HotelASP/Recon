@@ -274,7 +274,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--smrib-path",
-        default=os.environ.get("SMRIB_PATH", str(Path.home() / "Desktop/RT/smrib.py")),
+        default=os.environ.get("SMRIB_PATH", str(Path.home() / "/home/kali/Desktop/RT/smrib.py")),
         help="Location of smrib.py when using the smrib discovery option.",
     )
     parser.add_argument(
