@@ -1780,7 +1780,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     if finding.ip:
                         normalised_ip = _normalise_target(finding.ip)
                         if normalised_ip not in scanned_targets:
-                            _record_unprocessed(finding.ip)
+                            new_targets.add(finding.ip)
 
                     candidate_domain = _registered_domain(candidate)
                     if candidate_domain:
@@ -1798,7 +1798,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 for ip_value in result.sections.get("ips", []):
                     normalised_ip = _normalise_target(ip_value)
                     if normalised_ip not in scanned_targets:
-                        _record_unprocessed(ip_value)
+                        new_targets.add(ip_value)
 
             if new_targets:
                 resolved_targets = _resolve_related_targets(sorted(new_targets))
