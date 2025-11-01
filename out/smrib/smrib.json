@@ -1,29 +1,20 @@
 [
   {
-    "host": "160.153.248.110",
-    "port": 21,
-    "proto": "tcp",
-    "status": "open",
-    "note": "",
-    "time": "2025-11-01 16:48:14",
-    "duration_ms": 70
-  },
-  {
-    "host": "160.153.248.110",
+    "host": "137.74.187.102",
     "port": 80,
     "proto": "tcp",
     "status": "open",
     "note": "",
-    "time": "2025-11-01 16:48:14",
-    "duration_ms": 72
+    "time": "2025-11-01 16:53:56",
+    "duration_ms": 141
   },
   {
-    "host": "160.153.248.110",
+    "host": "137.74.187.102",
     "port": 443,
     "proto": "tcp",
     "status": "open",
     "note": "",
-    "time": "2025-11-01 16:48:16",
-    "duration_ms": 59
+    "time": "2025-11-01 16:53:57",
+    "duration_ms": 72
   }
 ]

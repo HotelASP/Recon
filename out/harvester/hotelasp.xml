@@ -1,1 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?><theHarvester><cmd>-d hotelasp.com -b "crtsh, bing" -l 500 -f /home/kali/Desktop/Recon/out/harvester/hotelasp.com</cmd><host>secure.hotelasp.com</host><host>www.hotelasp.com</host><host>www.secure.hotelasp.com</host></theHarvester>
