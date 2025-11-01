@@ -340,15 +340,35 @@ def prefix_command(cmd: List[str], use_sudo: bool) -> List[str]:
     return cmd
 
 
+def _format_banner(title: str) -> List[str]:
+    """Create a high-contrast banner that highlights the running tool."""
+
+    clean = " ".join(title.strip().split()) or "Running"
+    label = f" RUNNING: {clean} "
+    width = max(len(label), 32)
+    top_bottom = "═" * width
+    padded = label.center(width)
+    return [
+        f"╔{top_bottom}╗",
+        f"║{padded}║",
+        f"╚{top_bottom}╝",
+    ]
+
+
 def run_command(cmd: List[str], *, description: str, check: bool = False) -> bool:
     # Execute a subprocess while printing clear status messages. Returning a
     # boolean allows callers to gracefully skip follow-up steps when a stage
     # fails instead of raising an exception mid-pipeline.
+    banner_lines = _format_banner(description)
     if not _SILENT_MODE:
         echo("")
-    echo(f"[+] {description}", essential=True)
+    for line in banner_lines:
+        echo(line, essential=True)
     if not _SILENT_MODE:
-        echo("    " + " ".join(cmd))
+        echo("  Details:")
+        echo(f"    {description}")
+        echo("  Command:")
+        echo(f"    {' '.join(cmd)}")
     try:
         completed = subprocess.run(cmd, check=check)
         return completed.returncode == 0
