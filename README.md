@@ -32,6 +32,12 @@ such as `example.com # staging box` are supported—the portion after `#` is
 discarded before the target list is processed. The script aborts if no valid
 targets are present.
 
+Each entry may optionally include a comma-separated list of TCP ports after a
+space (for example `example.com 80,443`). When ports are provided, discovery and
+fingerprinting focus exclusively on that list for the corresponding host. Leave
+the port list empty to fall back to the global CLI options (`--ports`,
+`--top-ports`, or `--port-range`).
+
 ## Usage
 
 ```bash
@@ -55,6 +61,7 @@ python3 run_recon.py [options]
 | `--eyewitness-timeout SECONDS` | HTTP request timeout used by EyeWitness (default: `10`). |
 | `--eyewitness-threads N` | Number of parallel EyeWitness browser threads (default: `4`). |
 | `--preserve-output` | Skip the automatic cleanup of `out/` so previous artefacts remain available. |
+| `--targets-new-export` | Write all discovered hosts/domains and their ports to `targets_new.txt` for reuse. |
 | `--sudo` | Prefix scanner commands with `sudo` when the binary is available. |
 
 Passing more than one of `--top-ports`, `--port-range`, or `--ports` results in

@@ -30,7 +30,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, TextIO, Union
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, TextIO, Tuple, Union
 
 from tools import aggregate
 
@@ -52,6 +52,7 @@ INVENTORY_CSV = REPORT_DIR / "inventory.csv"
 REPORT_PATH = REPORT_DIR / "report.md"
 TARGETS_FILE = ROOT / "targets.txt"
 LOG_PATH = LOG_DIR / "recon.log"
+TARGETS_NEW_FILE = ROOT / "targets_new.txt"
 
 
 TOOL_SUMMARIES = {
@@ -243,6 +244,20 @@ class PortSelection:
     forced_ports: Optional[List[int]] = None
 
 
+@dataclass
+class TargetDefinition:
+    # Describe an individual target together with optional per-target ports.
+
+    value: str
+    ports: Optional[List[int]] = None
+
+    def formatted(self) -> str:
+        if not self.ports:
+            return self.value
+        port_list = ",".join(str(port) for port in self.ports)
+        return f"{self.value} (ports: {port_list})"
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     # Configure the command-line interface and explain every supported stage so
     # the automation can be controlled without editing the script.
@@ -366,6 +381,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Read additional targets from FILE (one per line).",
     )
     parser.add_argument(
+        "--targets-new-export",
+        action="store_true",
+        help=(
+            "Export all discovered hosts and domains together with their ports to "
+            "targets_new.txt for use in a subsequent run."
+        ),
+    )
+    parser.add_argument(
         "--silent",
         action="store_true",
         help="Only display essential status messages.",
@@ -471,7 +494,56 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
     return PortSelection(description, masscan_args, nmap_args, smrib_args)
 
 
-def load_targets(path: Path, *, create_default: bool) -> List[str]:
+def _parse_port_list(port_text: str) -> List[int]:
+    if not port_text:
+        return []
+    ports: List[int] = []
+    for entry in port_text.split(","):
+        cleaned = entry.strip()
+        if not cleaned:
+            continue
+        if not cleaned.isdigit():
+            raise SystemExit(
+                "Target files must specify ports as integers separated by commas"
+            )
+        value = int(cleaned)
+        if not 1 <= value <= 65535:
+            raise SystemExit("Target ports must be between 1 and 65535")
+        ports.append(value)
+    return sorted(dict.fromkeys(ports))
+
+
+def _split_target_and_ports(raw: str) -> TargetDefinition:
+    target = raw.strip()
+    port_text = ""
+
+    if not target:
+        raise SystemExit("Encountered an empty target entry after processing")
+
+    if " " in target:
+        first, rest = target.split(None, 1)
+        target = first
+        port_text = rest.strip()
+    else:
+        # Support the common ``target:80,443`` form while avoiding IPv6 mix-ups.
+        if target.count(":") == 1:
+            host, port_part = target.split(":", 1)
+            if port_part and port_part.replace(",", "").isdigit():
+                target = host
+                port_text = port_part
+        elif target.startswith("[") and "]" in target:
+            host_part, remainder = target[1:].split("]", 1)
+            if remainder.startswith(":") and remainder[1:].replace(",", "").isdigit():
+                target = host_part
+                port_text = remainder[1:]
+            else:
+                target = host_part or raw.strip()
+
+    ports = _parse_port_list(port_text) if port_text else None
+    return TargetDefinition(target, ports)
+
+
+def load_targets(path: Path, *, create_default: bool) -> List[TargetDefinition]:
     # Load the reconnaissance targets from disk. When ``create_default`` is
     # enabled and the file is missing, populate it with ``hackthissite.org`` so
     # the workflow has an immediate starting point.
@@ -481,7 +553,7 @@ def load_targets(path: Path, *, create_default: bool) -> List[str]:
         path.write_text("hackthissite.org\n", encoding="utf-8")
         echo(f"[+] Created default targets file at {path} with hackthissite.org", essential=True)
 
-    targets: List[str] = []
+    targets: List[TargetDefinition] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped:
@@ -498,12 +570,67 @@ def load_targets(path: Path, *, create_default: bool) -> List[str]:
 
         if stripped.startswith("#"):
             continue
-        targets.append(stripped)
+
+        targets.append(_split_target_and_ports(stripped))
 
     if not targets:
         raise SystemExit(f"No targets defined in {path}")
 
     return targets
+
+
+def _merge_target_definitions(definitions: Sequence[TargetDefinition]) -> List[TargetDefinition]:
+    combined: Dict[str, TargetDefinition] = {}
+    for definition in definitions:
+        key = _normalise_target(definition.value)
+        ports = sorted(dict.fromkeys(definition.ports)) if definition.ports else None
+        existing = combined.get(key)
+        if existing is None:
+            combined[key] = TargetDefinition(definition.value, ports)
+            continue
+
+        if ports:
+            if existing.ports:
+                merged = sorted(dict.fromkeys(existing.ports + ports))
+            else:
+                merged = ports
+            existing.ports = merged
+
+    return list(combined.values())
+
+
+def _group_targets_by_ports(
+    definitions: Sequence[TargetDefinition],
+) -> Dict[Optional[Tuple[int, ...]], List[str]]:
+    groups: Dict[Optional[Tuple[int, ...]], List[str]] = {}
+    for definition in definitions:
+        key: Optional[Tuple[int, ...]]
+        if definition.ports:
+            key = tuple(definition.ports)
+        else:
+            key = None
+        groups.setdefault(key, []).append(definition.value)
+    return groups
+
+
+def _port_selection_from_ports(ports: Sequence[int]) -> PortSelection:
+    unique = sorted(dict.fromkeys(int(port) for port in ports))
+    port_list = ",".join(str(port) for port in unique)
+    return PortSelection(
+        description=f"ports {port_list}",
+        masscan_args=["-p", port_list],
+        nmap_args=["-p", port_list],
+        smrib_args=["--ports", port_list],
+        forced_ports=unique,
+    )
+
+
+def _merge_result_maps(
+    destination: Dict[str, Set[int]],
+    source: Mapping[str, Set[int]],
+) -> None:
+    for host, ports in source.items():
+        destination.setdefault(host, set()).update(ports)
 
 
 def prefix_command(cmd: List[str], use_sudo: bool) -> List[str]:
@@ -755,6 +882,7 @@ def merge_discovered_hosts(
     smrib_results: Mapping[str, Set[int]],
     nmap_results: Mapping[str, Set[int]],
     forced_ports: Optional[Sequence[int]],
+    per_target_ports: Mapping[str, Sequence[int]],
 ) -> Dict[str, Set[int]]:
     # Consolidate discovery findings. Only ports confirmed during discovery will
     # be fingerprinted in the next stage.
@@ -764,21 +892,27 @@ def merge_discovered_hosts(
         for ip, ports in result.items():
             merged.setdefault(ip, set()).update(ports)
 
+    overrides: Dict[str, Set[int]] = {}
+    for target, ports in per_target_ports.items():
+        port_set = set(int(port) for port in ports)
+        overrides[target] = set(sorted(port_set))
+
     if forced_ports:
-        forced_sorted = sorted(dict.fromkeys(forced_ports))
+        forced_sorted = sorted(dict.fromkeys(int(port) for port in forced_ports))
         forced_set = set(forced_sorted)
-        overridden: Dict[str, Set[int]] = {}
         for host in merged:
-            overridden[host] = set(forced_set)
-
+            if host not in overrides:
+                overrides.setdefault(host, set()).update(forced_set)
         for target in targets:
-            overridden.setdefault(target, set(forced_set))
-
-        return overridden
+            if target not in overrides:
+                overrides.setdefault(target, set()).update(forced_set)
 
     if not merged:
         for target in targets:
             merged[target] = set()
+
+    for target, ports in overrides.items():
+        merged[target] = set(sorted(ports))
 
     for ip, ports in list(merged.items()):
         merged[ip] = set(sorted(ports))
@@ -845,6 +979,65 @@ def run_nmap_fingerprinting(
             f"against {port_scope}"
         )
         run_command(prefix_command(cmd, use_sudo), description=description)
+
+
+def export_target_file(
+    path: Path,
+    targets: Sequence[TargetDefinition],
+    discovered_hosts: Mapping[str, Set[int]],
+    inventory: Sequence[Mapping[str, object]],
+    domains: Iterable[str],
+) -> None:
+    """Persist consolidated targets with per-host ports for future runs."""
+
+    entries: Dict[str, Set[int]] = {}
+
+    for definition in targets:
+        entry_ports = entries.setdefault(definition.value, set())
+        if definition.ports:
+            entry_ports.update(int(port) for port in definition.ports)
+
+    for host, ports in discovered_hosts.items():
+        entry_ports = entries.setdefault(host, set())
+        entry_ports.update(int(port) for port in ports)
+
+    for record in inventory:
+        open_ports = record.get("open_ports", [])
+        try:
+            port_values = {int(port) for port in open_ports}
+        except (TypeError, ValueError):
+            port_values = set()
+
+        ip_value = record.get("ip")
+        if isinstance(ip_value, str) and ip_value:
+            entries.setdefault(ip_value, set()).update(port_values)
+
+        hostnames = record.get("hostnames", [])
+        if isinstance(hostnames, list):
+            for hostname in hostnames:
+                if isinstance(hostname, str) and hostname:
+                    entries.setdefault(hostname, set()).update(port_values)
+
+    for domain in domains:
+        if isinstance(domain, str) and domain:
+            entries.setdefault(domain, set())
+
+    sorted_targets = sorted(entries.items(), key=lambda item: item[0].lower())
+
+    lines: List[str] = []
+    for target, ports in sorted_targets:
+        if ports:
+            port_list = ",".join(str(port) for port in sorted(ports))
+            lines.append(f"{target} {port_list}")
+        else:
+            lines.append(target)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = "\n".join(lines)
+    if content:
+        content += "\n"
+    path.write_text(content, encoding="utf-8")
+    echo(f"[+] Exported {len(sorted_targets)} target(s) to {path}", essential=True)
 
 
 def _normalise_target(value: str) -> str:
@@ -1284,8 +1477,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     echo("[+] Starting reconnaissance workflow", essential=True)
     port_selection = build_port_selection(args)
-    cli_targets = list(args.targets)
-    file_targets: List[str] = []
+    cli_targets = [_split_target_and_ports(entry) for entry in args.targets]
+    file_targets: List[TargetDefinition] = []
     file_origin: Optional[Path] = None
     if args.targets_file:
         candidate = args.targets_file
@@ -1297,17 +1490,22 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         file_origin = TARGETS_FILE
         file_targets = load_targets(file_origin, create_default=True)
 
-    targets: List[str] = []
-    for entry in cli_targets + file_targets:
-        if entry not in targets:
-            targets.append(entry)
+    target_definitions = _merge_target_definitions(cli_targets + file_targets)
 
-    if not targets:
+    if not target_definitions:
         raise SystemExit("No reconnaissance targets provided. Use --targets or --targets-file.")
+
+    targets = [definition.value for definition in target_definitions]
+    formatted_targets = [definition.formatted() for definition in target_definitions]
+    per_target_ports: Dict[str, Sequence[int]] = {
+        definition.value: definition.ports or []
+        for definition in target_definitions
+        if definition.ports
+    }
 
     echo(f"[+] Loaded {len(targets)} target(s)", essential=True)
     echo("    Target list (in scanning order):", essential=True)
-    for index, target in enumerate(targets, start=1):
+    for index, target in enumerate(formatted_targets, start=1):
         echo(f"      {index}. {target}", essential=True)
 
     if cli_targets and file_origin:
@@ -1337,24 +1535,47 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         ensure_writable_directory(path)
     echo("[+] Output directories verified", essential=True)
 
-    discovery_description = f"{args.scanner} ({port_selection.description})"
-    masscan_results: Mapping[str, Set[int]] = {}
-    smrib_results: Mapping[str, Set[int]] = {}
-    nmap_results: Mapping[str, Set[int]] = {}
+    groups = _group_targets_by_ports(target_definitions)
+
+    discovery_descriptions: List[str] = []
+    masscan_results: Dict[str, Set[int]] = {}
+    smrib_results: Dict[str, Set[int]] = {}
+    nmap_results: Dict[str, Set[int]] = {}
     use_sudo = False
 
-    if args.scanner == "masscan":
-        masscan_results = run_masscan(
-            targets,
-            port_selection,
-            args.masscan_rate,
-            args.masscan_status_interval,
-            use_sudo,
-        )
-    elif args.scanner == "smrib":
-        smrib_results = run_smrib(targets, port_selection, args.smrib_path, args.smrib_extra, use_sudo)
+    for key, subset in groups.items():
+        if not subset:
+            continue
+        if key is None:
+            selection = port_selection
+        else:
+            selection = _port_selection_from_ports(list(key))
+        if selection.description not in discovery_descriptions:
+            discovery_descriptions.append(selection.description)
+
+        if args.scanner == "masscan":
+            results = run_masscan(
+                subset,
+                selection,
+                args.masscan_rate,
+                args.masscan_status_interval,
+                use_sudo,
+            )
+            _merge_result_maps(masscan_results, results)
+        elif args.scanner == "smrib":
+            results = run_smrib(subset, selection, args.smrib_path, args.smrib_extra, use_sudo)
+            _merge_result_maps(smrib_results, results)
+        else:
+            results = run_nmap_discovery(subset, selection, use_sudo)
+            _merge_result_maps(nmap_results, results)
+
+    if not discovery_descriptions:
+        discovery_description = f"{args.scanner} (no targets)"
+    elif len(discovery_descriptions) == 1:
+        discovery_description = f"{args.scanner} ({discovery_descriptions[0]})"
     else:
-        nmap_results = run_nmap_discovery(targets, port_selection, use_sudo)
+        joined = "; ".join(discovery_descriptions)
+        discovery_description = f"{args.scanner} ({joined})"
 
     discovered_hosts = merge_discovered_hosts(
         targets,
@@ -1362,6 +1583,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         smrib_results,
         nmap_results,
         port_selection.forced_ports,
+        per_target_ports,
     )
 
     display_discovered_hosts(discovered_hosts)
@@ -1380,8 +1602,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     domains = set(target_domains)
     domains.update(nmap_domains)
+    all_domains: Set[str] = set(domains)
 
     processed_domains: Set[str] = set()
+    pending_domains: Set[str] = set()
     scanned_targets: Set[str] = {_normalise_target(target) for target in targets}
     for ip in discovered_hosts:
         scanned_targets.add(_normalise_target(ip))
@@ -1406,6 +1630,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 break
 
             harvester_map = aggregate.parse_harvester_dir(str(HARVESTER_DIR))
+            all_domains.update(harvester_map.keys())
             current_batch = {domain.lower() for domain in pending_domains}
             new_targets: Set[str] = set()
             related_domains: Set[str] = set()
@@ -1420,6 +1645,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     new_targets.add(domain)
                 for finding in findings:
                     candidate = finding.hostname
+                    if candidate:
+                        all_domains.add(candidate)
                     if candidate and _normalise_target(candidate) not in scanned_targets:
                         new_targets.add(candidate)
                     if finding.ip and _normalise_target(finding.ip) not in scanned_targets:
@@ -1454,6 +1681,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     new_domain_candidates.add(domain)
 
             pending_domains = {domain for domain in new_domain_candidates if domain not in processed_domains}
+            all_domains.update(new_domain_candidates)
 
             if not pending_domains:
                 echo("[+] No additional domains discovered via OSINT – ending iterative search.", essential=True)
@@ -1466,7 +1694,18 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     urls = collect_http_urls(inventory)
     screenshots = run_eyewitness(urls, args)
 
-    write_report(args, targets, discovery_description, discovered_hosts, screenshots)
+    if args.targets_new_export:
+        all_domains.update(processed_domains)
+        all_domains.update(pending_domains)
+        export_target_file(
+            TARGETS_NEW_FILE,
+            target_definitions,
+            discovered_hosts,
+            inventory,
+            all_domains,
+        )
+
+    write_report(args, formatted_targets, discovery_description, discovered_hosts, screenshots)
 
     echo(
         f"[+] Recon workflow completed. Inventory: {INVENTORY_JSON}, CSV: {INVENTORY_CSV}",
