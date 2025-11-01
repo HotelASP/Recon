@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Sat Nov  1 14:11:47 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/137.74.187.103 -p 443 137.74.187.103 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/137.74.187.103 -p 443 137.74.187.103" start="1762006307" startstr="Sat Nov  1 14:11:47 2025" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1" services="443"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<hosthint><status state="up" reason="unknown-response" reason_ttl="0"/>
+<address addr="137.74.187.103" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+</hosthint>
+<host starttime="1762006307" endtime="1762006361"><status state="up" reason="reset" reason_ttl="255"/>
+<address addr="137.74.187.103" addrtype="ipv4"/>
+<hostnames>
+<hostname name="hackthissite.org" type="PTR"/>
+</hostnames>
+<ports><port protocol="tcp" portid="443"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="http-proxy" product="HAProxy http proxy" version="1.3.1 - 1.9.0" devicetype="load balancer" tunnel="ssl" method="probed" conf="10"><cpe>cpe:/a:haproxy:haproxy</cpe></service><script id="http-title" output="Hack This Site"><elem key="title">Hack This Site</elem>
+</script><script id="ssl-cert" output="Subject: commonName=hackthisjogneh42n5o7gbzrewxee3vyu6ex37ukyvdw6jm66npakiyd.onion&#xa;Subject Alternative Name: DNS:hackthissite.org, DNS:www.hackthissite.org, DNS:hackthisjogneh42n5o7gbzrewxee3vyu6ex37ukyvdw6jm66npakiyd.onion&#xa;Not valid before: 2025-03-25T04:43:22&#xa;Not valid after:  2026-03-25T04:43:22"><table key="subject">
+<elem key="commonName">hackthisjogneh42n5o7gbzrewxee3vyu6ex37ukyvdw6jm66npakiyd.onion</elem>
+</table>
+<table key="issuer">
+<elem key="commonName">HARICA DV TLS RSA</elem>
+<elem key="countryName">GR</elem>
+<elem key="organizationName">Hellenic Academic and Research Institutions CA</elem>
+</table>
+<table key="pubkey">
+<elem key="type">rsa</elem>
+<elem key="bits">4096</elem>
+<elem key="modulus">C672745146AB710A99D8B10A323C8BD46FAA1126BBD675A39AD7A5195ABA66511E5A99EEAA1145837B798ED37AF8D0C5974357D70FE9257EC52F7D91EEF608E61512454339BB9C802B0BDDC77EDE549E9F438DAEA8E3E80F1A7FE91E4A87A47ADA61818E9EFF7CE27C4EAF645FE5530B76D98F4827C39E497BBC99F06D368F7861199A6647F6C54B321DBE33FCD6DD7B2E1F4A93A97E05117EA7874D6E1984993F5A481A5A2894F16EB8022A1F475E933216C2D7F437B20124DFC214557AC45931DA1BDC3139564D744D96F26FCD723592EAE74F40D40975203BC34F2F25FC8F4B78CF47A8023659A0DBA15AD0B741FE396EB671FA2AAEC1453E653FC6EC2B1BF67B530F9777BB5CE17C76CA7275B59FA4A846681A1F0B0F1809C22B77D747D78BB793803CA7F3F170EE9987D1B15CA582AE828AC522F03C9AF5C1DBFA9F10F1C8ABE08EBC1848B97004F6750A5015728018D623D7D7A2ED43AE14F8713834F2A225F6E98E14E213058CE9CD60526ED23203359D54B54931C699F5199A725D7BBA6169C28CDA3F2F807D85F60DCF508E2009AAF27031AAF3F0BCF96BE8E7A7CC096D85EAA8B66EFED0AD660072AF86F277B01264ADE836C1CC7A49501BDB394C85DED0402C18C62AEC735B248861F34F5EBBA78FAD4FCA9C88943E4D8D90DA3E06E8E877F147B9D5E57C5030959667432405016F93810F00282756F0C6305E0B</elem>
+<elem key="exponent">65537</elem>
+</table>
+<table key="extensions">
+<table>
+<elem key="name">X509v3 Authority Key Identifier</elem>
+<elem key="value">0A:88:AB:BC:8B:F0:F5:4A:EC:61:44:50:40:44:C1:87:66:DE:DE:51</elem>
+</table>
+<table>
+<elem key="name">Authority Information Access</elem>
+<elem key="value">CA Issuers - URI:http://crt.harica.gr/HARICA-DV-TLS-Sub-R1.cer&#xa;OCSP - URI:http://ocsp.harica.gr</elem>
+</table>
+<table>
+<elem key="name">X509v3 Subject Alternative Name</elem>
+<elem key="value">DNS:hackthissite.org, DNS:www.hackthissite.org, DNS:hackthisjogneh42n5o7gbzrewxee3vyu6ex37ukyvdw6jm66npakiyd.onion</elem>
+</table>
+<table>
+<elem key="name">X509v3 Certificate Policies</elem>
+<elem key="value">Policy: 2.23.140.1.2.1&#xa;Policy: 0.4.0.2042.1.6&#xa;Policy: 1.3.6.1.4.1.26513.1.1.1.1</elem>
+</table>
+<table>
+<elem key="name">X509v3 Extended Key Usage</elem>
+<elem key="value">TLS Web Client Authentication, TLS Web Server Authentication</elem>
+</table>
+<table>
+<elem key="name">X509v3 CRL Distribution Points</elem>
+<elem key="value">Full Name:&#xa;  URI:http://crl.harica.gr/HARICA-DV-TLS-Sub-R1.crl&#xa;</elem>
+</table>
+<table>
+<elem key="name">X509v3 Subject Key Identifier</elem>
+<elem key="value">7D:57:EB:F6:FB:F9:9D:AC:07:D3:1E:2B:D4:E7:E3:79:8C:49:12:9F</elem>
+</table>
+<table>
+<elem key="name">X509v3 Key Usage</elem>
+<elem key="value">Digital Signature, Key Encipherment</elem>
+<elem key="critical">true</elem>
+</table>
+<table>
+<elem key="name">CT Precertificate SCTs</elem>
+<elem key="value">Signed Certificate Timestamp:&#xa;    Version   : v1 (0x0)&#xa;    Log ID    : 25:2F:94:C2:2B:29:E9:6E:9F:41:1A:72:07:2B:69:5C:&#xa;                5B:52:FF:97:A9:0D:25:40:BB:FC:DC:51:EC:4D:EE:0B&#xa;    Timestamp : Mar 25 04:53:24.738 2025 GMT&#xa;    Extensions: none&#xa;    Signature : ecdsa-with-SHA256&#xa;                30:45:02:21:00:B4:82:EE:79:2F:28:0B:84:97:C2:41:&#xa;                C2:C9:C8:C4:16:0E:3F:C2:BF:66:F3:7E:65:29:9D:AF:&#xa;                03:0F:F0:A5:F7:02:20:67:77:50:FF:A1:0F:C2:B0:B3:&#xa;                E8:27:09:DC:52:E3:B3:26:AF:22:13:45:28:BD:D3:BC:&#xa;                99:42:E8:CF:F1:1C:71&#xa;Signed Certificate Timestamp:&#xa;    Version   : v1 (0x0)&#xa;    Log ID    : 49:9C:9B:69:DE:1D:7C:EC:FC:36:DE:CD:87:64:A6:B8:&#xa;                5B:AF:0A:87:80:19:D1:55:52:FB:E9:EB:29:DD:F8:C3&#xa;    Timestamp : Mar 25 04:53:24.837 2025 GMT&#xa;    Extensions: none&#xa;    Signature : ecdsa-with-SHA256&#xa;                30:44:02:20:1E:1F:C6:FB:66:23:CC:57:AF:33:E3:A3:&#xa;                C4:B0:6F:80:37:C2:09:3B:E0:49:41:95:E2:4E:81:6C:&#xa;                3A:53:86:BE:02:20:3A:D9:CE:3D:2F:0A:7F:8D:99:FA:&#xa;                49:65:98:69:E4:61:05:08:DF:61:A6:24:C3:A9:33:5C:&#xa;                A7:95:FE:00:EE:CD&#xa;Signed Certificate Timestamp:&#xa;    Version   : v1 (0x0)&#xa;    Log ID    : 96:97:64:BF:55:58:97:AD:F7:43:87:68:37:08:42:77:&#xa;                E9:F0:3A:D5:F6:A4:F3:36:6E:46:A4:3F:0F:CA:A9:C6&#xa;    Timestamp : Mar 25 04:53:24.609 2025 GMT&#xa;    Extensions: none&#xa;    Signature : ecdsa-with-SHA256&#xa;                30:46:02:21:00:E0:49:73:7C:FD:C0:ED:37:56:39:9C:&#xa;                3D:9F:62:D2:07:9A:F4:5A:8C:CA:B1:15:97:76:55:A4:&#xa;                A8:2C:3B:EF:9E:02:21:00:C8:47:C3:C9:C3:27:87:D0:&#xa;                AA:88:03:BB:6F:53:38:FF:96:32:A8:09:75:65:A5:D0:&#xa;                79:36:4D:9C:2A:6B:CE:0A</elem>
+</table>
+</table>
+<elem key="sig_algo">sha256WithRSAEncryption</elem>
+<table key="validity">
+<elem key="notBefore">2025-03-25T04:43:22</elem>
+<elem key="notAfter">2026-03-25T04:43:22</elem>
+</table>
+<elem key="md5">d7af6ce2af75a95a6b71a576a15d01ca</elem>
+<elem key="sha1">3fce023d53834831e471434a3a99cdac06afe20c</elem>
+<elem key="pem">-&#45;&#45;&#45;&#45;BEGIN CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;MIIIfDCCBmSgAwIBAgIQdKxFYW62gM+lgdSKzrxiOTANBgkqhkiG9w0BAQsFADBi&#xa;MQswCQYDVQQGEwJHUjE3MDUGA1UECgwuSGVsbGVuaWMgQWNhZGVtaWMgYW5kIFJl&#xa;c2VhcmNoIEluc3RpdHV0aW9ucyBDQTEaMBgGA1UEAwwRSEFSSUNBIERWIFRMUyBS&#xa;U0EwHhcNMjUwMzI1MDQ0MzIyWhcNMjYwMzI1MDQ0MzIyWjBJMUcwRQYDVQQDDD5o&#xa;YWNrdGhpc2pvZ25laDQybjVvN2dienJld3hlZTN2eXU2ZXgzN3VreXZkdzZqbTY2&#xa;bnBha2l5ZC5vbmlvbjCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAMZy&#xa;dFFGq3EKmdixCjI8i9RvqhEmu9Z1o5rXpRlaumZRHlqZ7qoRRYN7eY7TevjQxZdD&#xa;V9cP6SV+xS99ke72COYVEkVDObucgCsL3cd+3lSen0ONrqjj6A8af+keSoeketph&#xa;gY6e/3zifE6vZF/lUwt22Y9IJ8OeSXu8mfBtNo94YRmaZkf2xUsyHb4z/Nbdey4f&#xa;SpOpfgURfqeHTW4ZhJk/WkgaWiiU8W64AiofR16TMhbC1/Q3sgEk38IUVXrEWTHa&#xa;G9wxOVZNdE2W8m/NcjWS6udPQNQJdSA7w08vJfyPS3jPR6gCNlmg26Fa0LdB/jlu&#xa;tnH6Kq7BRT5lP8bsKxv2e1MPl3e7XOF8dspydbWfpKhGaBofCw8YCcIrd9dH14u3&#xa;k4A8p/PxcO6Zh9GxXKWCroKKxSLwPJr1wdv6nxDxyKvgjrwYSLlwBPZ1ClAVcoAY&#xa;1iPX16LtQ64U+HE4NPKiJfbpjhTiEwWM6c1gUm7SMgM1nVS1STHGmfUZmnJde7ph&#xa;acKM2j8vgH2F9g3PUI4gCarycDGq8/C8+Wvo56fMCW2F6qi2bv7QrWYAcq+G8new&#xa;EmSt6DbBzHpJUBvbOUyF3tBALBjGKuxzWySIYfNPXrunj61PypyIlD5NjZDaPgbo&#xa;6HfxR7nV5XxQMJWWZ0MkBQFvk4EPACgnVvDGMF4LAgMBAAGjggNFMIIDQTAfBgNV&#xa;HSMEGDAWgBQKiKu8i/D1SuxhRFBARMGHZt7eUTBsBggrBgEFBQcBAQRgMF4wOQYI&#xa;KwYBBQUHMAKGLWh0dHA6Ly9jcnQuaGFyaWNhLmdyL0hBUklDQS1EVi1UTFMtU3Vi&#xa;LVIxLmNlcjAhBggrBgEFBQcwAYYVaHR0cDovL29jc3AuaGFyaWNhLmdyMHEGA1Ud&#xa;EQRqMGiCEGhhY2t0aGlzc2l0ZS5vcmeCFHd3dy5oYWNrdGhpc3NpdGUub3Jngj5o&#xa;YWNrdGhpc2pvZ25laDQybjVvN2dienJld3hlZTN2eXU2ZXgzN3VreXZkdzZqbTY2&#xa;bnBha2l5ZC5vbmlvbjAtBgNVHSAEJjAkMAgGBmeBDAECATAIBgYEAI96AQYwDgYM&#xa;KwYBBAGBzxEBAQEBMB0GA1UdJQQWMBQGCCsGAQUFBwMCBggrBgEFBQcDATA+BgNV&#xa;HR8ENzA1MDOgMaAvhi1odHRwOi8vY3JsLmhhcmljYS5nci9IQVJJQ0EtRFYtVExT&#xa;LVN1Yi1SMS5jcmwwHQYDVR0OBBYEFH1X6/b7+Z2sB9MeK9Tn43mMSRKfMA4GA1Ud&#xa;DwEB/wQEAwIFoDCCAX4GCisGAQQB1nkCBAIEggFuBIIBagFoAHYAJS+Uwisp6W6f&#xa;QRpyBytpXFtS/5epDSVAu/zcUexN7gsAAAGVy6XwggAABAMARzBFAiEAtILueS8o&#xa;C4SXwkHCycjEFg4/wr9m835lKZ2vAw/wpfcCIGd3UP+hD8Kws+gnCdxS47MmryIT&#xa;RSi907yZQujP8RxxAHUASZybad4dfOz8Nt7Nh2SmuFuvCoeAGdFVUvvp6ynd+MMA&#xa;AAGVy6Xw5QAABAMARjBEAiAeH8b7ZiPMV68z46PEsG+AN8IJO+BJQZXiToFsOlOG&#xa;vgIgOtnOPS8Kf42Z+kllmGnkYQUI32GmJMOpM1ynlf4A7s0AdwCWl2S/VViXrfdD&#xa;h2g3CEJ36fA61fak8zZuRqQ/D8qpxgAAAZXLpfABAAAEAwBIMEYCIQDgSXN8/cDt&#xa;N1Y5nD2fYtIHmvRajMqxFZd2VaSoLDvvngIhAMhHw8nDJ4fQqogDu29TOP+WMqgJ&#xa;dWWl0Hk2TZwqa84KMA0GCSqGSIb3DQEBCwUAA4ICAQCTh0JAWOTOGVFLteORidNY&#xa;JfC2vj+UF4wNimjr839iMBpwwldDxx45tjLT4qB5GGw44b6sQtQ/jfzPu/E6ih1o&#xa;r5JTdfOHq8TYiDB+C02Yy1ZV6qXpORKjigXeghczglPor7LprJN0TS4jhF7V/iny&#xa;w4Bt3gmeC1Rof3yW2pmsQbk+DMs6vnQGDxbj1UY5sBx2g9+qCRdzKQMbLrkAvMnR&#xa;INvOqJVmfCmakNcSOsEwes9QNSCqX2IZEs1EUUtcxoGB2ihFAeT1lTqxAEBIHeQw&#xa;cdA2JFOxsGJ2jRRJJyqYYcZqC/GXgflHeUgMEKwGu+ivVrPNsL4wi3N59rU7G3sX&#xa;e1iCWqzWqDsTqm2SXMJRxAFJVvd/5qu2mPC1naWp60GoMRZG7byIpfhS2YrWg9mL&#xa;5fMx7XxDDydwialkWhiFkq0a8cHTrzsClqEpwk/5Ky9iscJAmZBqltlmYBaukRkJ&#xa;OGsixtZy/kexGk27N79M+0m9sy//grR1drwSWovnEVulFWHT9+USauMtVvtN6VR4&#xa;T0wmsKJt1sZ6DUvWfFnJiF9hyIGwXrQ5ENP/Q3E4YEdG6IOBsSpa3HaeDMfx6HB/&#xa;PGdhU2s1j6lImXMKdqbDa8CbpyJZLjLLu8AbVm/zP2vuAaWBKw9+4nLZZK3mbo5A&#xa;XlrvSWXxZ1EqaB0T/tiL+w==&#xa;-&#45;&#45;&#45;&#45;END CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;</elem>
+</script><script id="http-server-header" output="HackThisSite"><elem>HackThisSite</elem>
+</script></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="443"/>
+<osmatch name="Oracle Virtualbox Slirp NAT bridge" accuracy="98" line="98665">
+<osclass type="bridge" vendor="Oracle" osfamily="Virtualbox" accuracy="98"><cpe>cpe:/o:oracle:virtualbox</cpe></osclass>
+<osclass type="bridge" vendor="Slirp" osfamily="Slirp" accuracy="98"><cpe>cpe:/a:danny_gasparovski:slirp</cpe></osclass>
+</osmatch>
+<osmatch name="AT&amp;T BGW210 voice gateway" accuracy="95" line="9785">
+<osclass type="VoIP adapter" vendor="AT&amp;T" osfamily="embedded" accuracy="95"/>
+</osmatch>
+<osmatch name="QEMU user mode network gateway" accuracy="94" line="100506">
+<osclass type="general purpose" vendor="QEMU" osfamily="QEMU" accuracy="94"><cpe>cpe:/a:qemu:qemu</cpe></osclass>
+</osmatch>
+</os>
+<tcpsequence index="17" difficulty="Good luck!" values="18656201,18665C01,18675601,18694A01,186A4401,186B3E01"/>
+<ipidsequence class="Incremental" values="ED10,ED11,ED12,ED13,ED14,ED15"/>
+<tcptssequence class="none returned (unsupported)"/>
+<times srtt="25868" rttvar="32564" to="156124"/>
+</host>
+<runstats><finished time="1762006361" timestr="Sat Nov  1 14:12:41 2025" summary="Nmap done at Sat Nov  1 14:12:41 2025; 1 IP address (1 host up) scanned in 54.06 seconds" elapsed="54.06" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

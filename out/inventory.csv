@@ -1,2 +1,6 @@
 ip,hostnames,os,open_ports,services
-137.74.187.100,hackthissite.org,Oracle Virtualbox Slirp NAT bridge,80;443,80:http-proxy:HAProxy http proxy 1.3.1 - 1.9.0;443:http-proxy:HAProxy http proxy 1.3.1 - 1.9.0
+137.74.187.100,hackthissite.org,Oracle Virtualbox Slirp NAT bridge,80;443,80:http-proxy:HAProxy http proxy 1.3.1 - 1.9.0;80:http-proxy:HAProxy http proxy 1.3.1 - 1.9.0;443:http-proxy:HAProxy http proxy 1.3.1 - 1.9.0
+137.74.187.103,hackthissite.org,Oracle Virtualbox Slirp NAT bridge,443,443:http-proxy:HAProxy http proxy 1.3.1 - 1.9.0
+137.74.187.101,hackthissite.org,Oracle Virtualbox Slirp NAT bridge,80,80:http-proxy:HAProxy http proxy 1.3.1 - 1.9.0
+137.74.187.102,hackthissite.org,Oracle Virtualbox Slirp NAT bridge,80,80:http-proxy:HAProxy http proxy 1.3.1 - 1.9.0
+137.74.187.104,hackthissite.org,Oracle Virtualbox Slirp NAT bridge,80,80:http-proxy:HAProxy http proxy 1.3.1 - 1.9.0

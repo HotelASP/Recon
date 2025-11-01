@@ -12,7 +12,80 @@
         "version": "HAProxy http proxy 1.3.1 - 1.9.0"
       },
       {
+        "port": 80,
+        "service": "http-proxy",
+        "version": "HAProxy http proxy 1.3.1 - 1.9.0"
+      },
+      {
         "port": 443,
+        "service": "http-proxy",
+        "version": "HAProxy http proxy 1.3.1 - 1.9.0"
+      }
+    ],
+    "hostnames": [
+      "hackthissite.org"
+    ],
+    "os": "Oracle Virtualbox Slirp NAT bridge"
+  },
+  {
+    "ip": "137.74.187.103",
+    "open_ports": [
+      443
+    ],
+    "services": [
+      {
+        "port": 443,
+        "service": "http-proxy",
+        "version": "HAProxy http proxy 1.3.1 - 1.9.0"
+      }
+    ],
+    "hostnames": [
+      "hackthissite.org"
+    ],
+    "os": "Oracle Virtualbox Slirp NAT bridge"
+  },
+  {
+    "ip": "137.74.187.101",
+    "open_ports": [
+      80
+    ],
+    "services": [
+      {
+        "port": 80,
+        "service": "http-proxy",
+        "version": "HAProxy http proxy 1.3.1 - 1.9.0"
+      }
+    ],
+    "hostnames": [
+      "hackthissite.org"
+    ],
+    "os": "Oracle Virtualbox Slirp NAT bridge"
+  },
+  {
+    "ip": "137.74.187.102",
+    "open_ports": [
+      80
+    ],
+    "services": [
+      {
+        "port": 80,
+        "service": "http-proxy",
+        "version": "HAProxy http proxy 1.3.1 - 1.9.0"
+      }
+    ],
+    "hostnames": [
+      "hackthissite.org"
+    ],
+    "os": "Oracle Virtualbox Slirp NAT bridge"
+  },
+  {
+    "ip": "137.74.187.104",
+    "open_ports": [
+      80
+    ],
+    "services": [
+      {
+        "port": 80,
         "service": "http-proxy",
         "version": "HAProxy http proxy 1.3.1 - 1.9.0"
       }

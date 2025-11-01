@@ -1,10 +1,10 @@
 # Reconnaissance Report
 
-*Generated*: 2025-11-01 14:01 UTC
-*Discovery scanner*: masscan (top 3 ports)
+*Generated*: 2025-11-01 14:16 UTC
+*Discovery scanner*: masscan (top 100 ports)
 *Targets*: hackthissite.org
-*Hosts in inventory*: 1
-*Total services recorded*: 2
+*Hosts in inventory*: 5
+*Total services recorded*: 7
 
 ## Target Scope
 1. hackthissite.org
@@ -17,9 +17,17 @@
 
 ## Host Overview
 - **137.74.187.100** – Hostnames: hackthissite.org; Ports: 80, 443; OS: Oracle Virtualbox Slirp NAT bridge
+- **137.74.187.103** – Hostnames: hackthissite.org; Ports: 443; OS: Oracle Virtualbox Slirp NAT bridge
+- **137.74.187.101** – Hostnames: hackthissite.org; Ports: 80; OS: Oracle Virtualbox Slirp NAT bridge
+- **137.74.187.102** – Hostnames: hackthissite.org; Ports: 80; OS: Oracle Virtualbox Slirp NAT bridge
+- **137.74.187.104** – Hostnames: hackthissite.org; Ports: 80; OS: Oracle Virtualbox Slirp NAT bridge
 
 ## Discovery Summary
-- hackthissite.org: (fallback range)
+- 137.74.187.102: 80
+- 137.74.187.104: 80
+- 137.74.187.103: 443
+- 137.74.187.100: 80
+- 137.74.187.101: 80
 
 ## Screenshots
 No screenshots captured (EyeWitness unavailable or no HTTP services detected).
