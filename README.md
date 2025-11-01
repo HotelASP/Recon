@@ -77,8 +77,8 @@ an error. When none is supplied, the script scans the top 100 ports.
 5. **EyeWitness (optional)** – Builds a list of detected HTTP/HTTPS services and
    captures screenshots in headless mode unless `--skip-eyewitness` is supplied
    or EyeWitness is missing.
-6. **Reporting** – Generates `out/report.md` summarising the run, inventories
-   hosts, and embeds any screenshots.
+6. **Reporting** – Generates `out/report/report.md` summarising the run,
+   inventories hosts, and embeds any screenshots.
 
 ## Output Layout
 
@@ -90,9 +90,11 @@ that context is useful:
 - `out/nmap/` – Nmap XML/normal/grepable files for the fingerprinting stage.
 - `out/harvester/` – theHarvester JSON/HTML exports or fallback DNS lookups.
 - `out/eyewitness/` – Screenshot directories produced by EyeWitness.
-- `out/masscan.json` & `out/smrib.json` – JSON exports from the respective scanners.
-- `out/inventory.json` & `out/inventory.csv` – Aggregated host/service inventory.
-- `out/report.md` – Human-readable summary and screenshot gallery.
+- `out/masscan/` – JSON exports created by Masscan (for example `masscan.json`).
+- `out/smrib/` – JSON exports produced by `smrib.py`.
+- `out/report/` – Aggregated inventory (`inventory.json`/`inventory.csv`) and the
+  Markdown report (`report.md`).
+- `out/log/` – `recon.log` capturing a transcript of the workflow.
 
 The script wipes the directories at the start of each run to avoid mixing
 artefacts from different sessions. Use `--preserve-output` if you prefer to keep
