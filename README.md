@@ -73,8 +73,8 @@ an error. When none is supplied, the script scans the top 100 ports.
    consolidate Nmap, Masscan, smrib, and theHarvester artefacts into structured
    JSON/CSV files.
 5. **EyeWitness (optional)** – Builds a list of detected HTTP/HTTPS services and
-   captures screenshots unless `--skip-eyewitness` is supplied or EyeWitness is
-   missing.
+   captures screenshots in headless mode unless `--skip-eyewitness` is supplied
+   or EyeWitness is missing.
 6. **Reporting** – Generates `out/report.md` summarising the run, inventories
    hosts, and embeds any screenshots.
 

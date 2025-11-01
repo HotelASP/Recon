@@ -924,6 +924,7 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
         cmd = [
             eyewitness_path,
             "--web",
+            "--headless",
             "--timeout",
             str(args.eyewitness_timeout),
             "--threads",
