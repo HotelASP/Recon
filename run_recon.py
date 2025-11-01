@@ -30,7 +30,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, TextIO
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, TextIO, Union
 
 from tools import aggregate
 
@@ -233,6 +233,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=int,
         default=1000,
         help="Packet rate to use with masscan (default: 1000).",
+    )
+    parser.add_argument(
+        "--masscan-status-interval",
+        type=float,
+        help=(
+            "Seconds between masscan status updates. Use 0 to suppress the "
+            "progress lines."
+        ),
     )
     parser.add_argument(
         "--smrib-path",
@@ -496,6 +504,7 @@ def run_masscan(
     targets: Sequence[str],
     port_selection: PortSelection,
     rate: int,
+    status_interval: Optional[float],
     use_sudo: bool,
 ) -> Mapping[str, Set[int]]:
     # Perform the high-speed discovery scan with Masscan, resolving hostnames
@@ -556,6 +565,13 @@ def run_masscan(
         "-oJ",
         str(MASSCAN_JSON),
     ]
+    if status_interval is not None:
+        interval_value: Union[float, int]
+        if isinstance(status_interval, float) and status_interval.is_integer():
+            interval_value = int(status_interval)
+        else:
+            interval_value = status_interval
+        cmd.extend(["--status", str(interval_value)])
     cmd.extend(port_selection.masscan_args)
     cmd.extend(list(dict.fromkeys(resolved_targets)))
     target_count = len(resolved_targets)
@@ -1062,7 +1078,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     nmap_results: Mapping[str, Set[int]] = {}
 
     if args.scanner == "masscan":
-        masscan_results = run_masscan(targets, port_selection, args.masscan_rate, args.sudo)
+        masscan_results = run_masscan(
+            targets,
+            port_selection,
+            args.masscan_rate,
+            args.masscan_status_interval,
+            args.sudo,
+        )
     elif args.scanner == "smrib":
         smrib_results = run_smrib(targets, port_selection, args.smrib_path, args.smrib_extra, args.sudo)
     else:
