@@ -26,16 +26,16 @@
         ],
         "scripts": [
           {
+            "id": "ssl-cert",
+            "output": "Subject: commonName=WMSvc-SHA2-S160-153-248-11\nNot valid before: 2021-01-04T13:14:05\nNot valid after:  2031-01-02T13:14:05"
+          },
+          {
             "id": "ftp-syst",
             "output": "\n  SYST: Windows_NT"
           },
           {
             "id": "ssl-date",
-            "output": "2025-11-01T16:38:59+00:00; 0s from scanner time."
-          },
-          {
-            "id": "ssl-cert",
-            "output": "Subject: commonName=WMSvc-SHA2-S160-153-248-11\nNot valid before: 2021-01-04T13:14:05\nNot valid after:  2031-01-02T13:14:05"
+            "output": "2025-11-01T16:48:38+00:00; 0s from scanner time."
           }
         ]
       },
@@ -92,16 +92,16 @@
             "output": "\n  h2\n  http/1.1"
           },
           {
-            "id": "ssl-cert",
-            "output": "Subject: commonName=localhost\nSubject Alternative Name: DNS:localhost\nNot valid before: 2021-01-05T10:55:57\nNot valid after:  2026-01-05T00:00:00"
-          },
-          {
             "id": "ssl-date",
-            "output": "2025-11-01T16:38:58+00:00; 0s from scanner time."
+            "output": "2025-11-01T16:48:38+00:00; 0s from scanner time."
           },
           {
             "id": "http-title",
             "output": "Not Found"
+          },
+          {
+            "id": "ssl-cert",
+            "output": "Subject: commonName=localhost\nSubject Alternative Name: DNS:localhost\nNot valid before: 2021-01-05T10:55:57\nNot valid after:  2026-01-05T00:00:00"
           }
         ]
       }
@@ -111,6 +111,64 @@
     ],
     "os": "Oracle Virtualbox Slirp NAT bridge",
     "os_accuracy": "98",
+    "related_domains": []
+  },
+  {
+    "ip": "192.124.249.38",
+    "open_ports": [
+      80,
+      443
+    ],
+    "services": [
+      {
+        "port": 80,
+        "proto": "tcp",
+        "state": "open",
+        "reason": "syn-ack",
+        "service": "http",
+        "version": "nginx reverse proxy",
+        "product": "nginx",
+        "extrainfo": "reverse proxy",
+        "tunnel": null,
+        "banner": null,
+        "ostype": null,
+        "method": "probed",
+        "cpe": [
+          "cpe:/a:igor_sysoev:nginx"
+        ],
+        "scripts": []
+      },
+      {
+        "port": 443,
+        "proto": "tcp",
+        "state": "open",
+        "reason": "syn-ack",
+        "service": "https",
+        "version": "Sucuri/Cloudproxy",
+        "product": "Sucuri/Cloudproxy",
+        "extrainfo": null,
+        "tunnel": "ssl",
+        "banner": "SF-Port443-TCP:V=7.95%T=SSL%I=7%D=11/1%Time=690639FE%P=x86_64-pc-linux-gnu%r(GetRequest,8E1,\"HTTP/1\\.1\\x20404\\x20Not\\x20Found\\r\\nDate:\\x20Sat,\\x2001\\x20Nov\\x202025\\x2016:49:58\\x20GMT\\r\\nContent-Type:\\x20text/html\\r\\nContent-Length:\\x202097\\r\\nConnection:\\x20close\\r\\nX-Sucuri-ID:\\x2013038\\r\\nServer:\\x20Sucuri/Cloudproxy\\r\\n\\r\\n<!DOCTYPE\\x20html>\\n<html\\x20lang=\\\"en\\\"\\x20xmlns=\\\"http://www\\.w3\\.org/1999/xhtml\\\">\\n<head>\\n<link\\x20rel=\\\"stylesheet\\\"\\x20href=\\\"https://cdn\\.sucuri\\.net/sucuri-firewall-block\\.css\\\"\\x20/>\\n<section\\x20class=\\\"center\\x20clearfix\\\">\\n<meta\\x20name=\\\"viewport\\\"\\x20content=\\\"width=device-width,\\x20initial-scale=1\\.0\\\"\\x20/>\\n<title>Sucuri\\x20WebSite\\x20Firewall\\x20-\\x20Not\\x20Configured</title>\\n<link\\x20href=\\\"https://fonts\\.googleapis\\.com/css\\?family=Open\\+Sans:400,300,600,700\\\"\\x20rel=\\\"stylesheet\\\"\\x20type=\\\"text/css\\\">\\n</head>\\n<body>\\n<div\\x20id=\\\"main-container\\\">\\n<header\\x20class=\\\"app-header\\x20clearfix\\\">\\n<div\\x20class=\\\"wrap\\\">\\n<a\\x20href=\\\"https://www\\.sucuri\\.net/\\?utm_source=firewall_block\\\"\\x20class=\\\"logo\\\"></a>\\n<span\\x20class=\\\"logo-neartext\\\">Website\\x20Firewall</span>\\n<a\\x20href=\\\"https://sucuri\\.net/\\?utm_source=firewall_block\\\"\\x20class=\")%r(HTTPOptions,8E1,\"HTTP/1\\.1\\x20404\\x20Not\\x20Found\\r\\nDate:\\x20Sat,\\x2001\\x20Nov\\x202025\\x2016:49:58\\x20GMT\\r\\nContent-Type:\\x20text/html\\r\\nContent-Length:\\x202097\\r\\nConnection:\\x20close\\r\\nX-Sucuri-ID:\\x2013038\\r\\nServer:\\x20Sucuri/Cloudproxy\\r\\n\\r\\n<!DOCTYPE\\x20html>\\n<html\\x20lang=\\\"en\\\"\\x20xmlns=\\\"http://www\\.w3\\.org/1999/xhtml\\\">\\n<head>\\n<link\\x20rel=\\\"stylesheet\\\"\\x20href=\\\"https://cdn\\.sucuri\\.net/sucuri-firewall-block\\.css\\\"\\x20/>\\n<section\\x20class=\\\"center\\x20clearfix\\\">\\n<meta\\x20name=\\\"viewport\\\"\\x20content=\\\"width=device-width,\\x20initial-scale=1\\.0\\\"\\x20/>\\n<title>Sucuri\\x20WebSite\\x20Firewall\\x20-\\x20Not\\x20Configured</title>\\n<link\\x20href=\\\"https://fonts\\.googleapis\\.com/css\\?family=Open\\+Sans:400,300,600,700\\\"\\x20rel=\\\"stylesheet\\\"\\x20type=\\\"text/css\\\">\\n</head>\\n<body>\\n<div\\x20id=\\\"main-container\\\">\\n<header\\x20class=\\\"app-header\\x20clearfix\\\">\\n<div\\x20class=\\\"wrap\\\">\\n<a\\x20href=\\\"https://www\\.sucuri\\.net/\\?utm_source=firewall_block\\\"\\x20class=\\\"logo\\\"></a>\\n<span\\x20class=\\\"logo-neartext\\\">Website\\x20Firewall</span>\\n<a\\x20href=\\\"https://sucuri\\.net/\\?utm_source=firewall_block\\\"\\x20class=\");",
+        "ostype": null,
+        "method": "probed",
+        "cpe": [],
+        "scripts": [
+          {
+            "id": "http-server-header",
+            "output": "Sucuri/Cloudproxy"
+          },
+          {
+            "id": "fingerprint-strings",
+            "output": "\n  GetRequest, HTTPOptions: \n    HTTP/1.1 404 Not Found\n    Date: Sat, 01 Nov 2025 16:49:58 GMT\n    Content-Type: text/html\n    Content-Length: 2097\n    Connection: close\n    X-Sucuri-ID: 13038\n    Server: Sucuri/Cloudproxy\n    <!DOCTYPE html>\n    <html lang=\"en\" xmlns=\"http://www.w3.org/1999/xhtml\">\n    <head>\n    <link rel=\"stylesheet\" href=\"https://cdn.sucuri.net/sucuri-firewall-block.css\" />\n    <section class=\"center clearfix\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Sucuri WebSite Firewall - Not Configured</title>\n    <link href=\"https://fonts.googleapis.com/css?family=Open+Sans:400,300,600,700\" rel=\"stylesheet\" type=\"text/css\">\n    </head>\n    <body>\n    <div id=\"main-container\">\n    <header class=\"app-header clearfix\">\n    <div class=\"wrap\">\n    href=\"https://www.sucuri.net/?utm_source=firewall_block\" class=\"logo\"></a>\n    <span class=\"logo-neartext\">Website Firewall</span>\n    href=\"https://sucuri.net/?utm_source=firewall_block\" class="
+          }
+        ]
+      }
+    ],
+    "hostnames": [
+      "cloudproxy10038.sucuri.net"
+    ],
+    "os": "Nokia 3600i mobile phone",
+    "os_accuracy": "90",
     "related_domains": []
   }
 ]

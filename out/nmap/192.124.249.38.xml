@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Sat Nov  1 16:48:49 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/192.124.249.38 -p 80,443 192.124.249.38 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/192.124.249.38 -p 80,443 192.124.249.38" start="1762015729" startstr="Sat Nov  1 16:48:49 2025" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="2" services="80,443"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<hosthint><status state="up" reason="unknown-response" reason_ttl="0"/>
+<address addr="192.124.249.38" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+</hosthint>
+<host starttime="1762015729" endtime="1762015890"><status state="up" reason="reset" reason_ttl="255"/>
+<address addr="192.124.249.38" addrtype="ipv4"/>
+<hostnames>
+<hostname name="cloudproxy10038.sucuri.net" type="PTR"/>
+</hostnames>
+<ports><port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="http" product="nginx" extrainfo="reverse proxy" method="probed" conf="10"><cpe>cpe:/a:igor_sysoev:nginx</cpe></service></port>
+<port protocol="tcp" portid="443"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="https" product="Sucuri/Cloudproxy" servicefp="SF-Port443-TCP:V=7.95%T=SSL%I=7%D=11/1%Time=690639FE%P=x86_64-pc-linux-gnu%r(GetRequest,8E1,&quot;HTTP/1\.1\x20404\x20Not\x20Found\r\nDate:\x20Sat,\x2001\x20Nov\x202025\x2016:49:58\x20GMT\r\nContent-Type:\x20text/html\r\nContent-Length:\x202097\r\nConnection:\x20close\r\nX-Sucuri-ID:\x2013038\r\nServer:\x20Sucuri/Cloudproxy\r\n\r\n&lt;!DOCTYPE\x20html&gt;\n&lt;html\x20lang=\&quot;en\&quot;\x20xmlns=\&quot;http://www\.w3\.org/1999/xhtml\&quot;&gt;\n&lt;head&gt;\n&lt;link\x20rel=\&quot;stylesheet\&quot;\x20href=\&quot;https://cdn\.sucuri\.net/sucuri-firewall-block\.css\&quot;\x20/&gt;\n&lt;section\x20class=\&quot;center\x20clearfix\&quot;&gt;\n&lt;meta\x20name=\&quot;viewport\&quot;\x20content=\&quot;width=device-width,\x20initial-scale=1\.0\&quot;\x20/&gt;\n&lt;title&gt;Sucuri\x20WebSite\x20Firewall\x20-\x20Not\x20Configured&lt;/title&gt;\n&lt;link\x20href=\&quot;https://fonts\.googleapis\.com/css\?family=Open\+Sans:400,300,600,700\&quot;\x20rel=\&quot;stylesheet\&quot;\x20type=\&quot;text/css\&quot;&gt;\n&lt;/head&gt;\n&lt;body&gt;\n&lt;div\x20id=\&quot;main-container\&quot;&gt;\n&lt;header\x20class=\&quot;app-header\x20clearfix\&quot;&gt;\n&lt;div\x20class=\&quot;wrap\&quot;&gt;\n&lt;a\x20href=\&quot;https://www\.sucuri\.net/\?utm_source=firewall_block\&quot;\x20class=\&quot;logo\&quot;&gt;&lt;/a&gt;\n&lt;span\x20class=\&quot;logo-neartext\&quot;&gt;Website\x20Firewall&lt;/span&gt;\n&lt;a\x20href=\&quot;https://sucuri\.net/\?utm_source=firewall_block\&quot;\x20class=&quot;)%r(HTTPOptions,8E1,&quot;HTTP/1\.1\x20404\x20Not\x20Found\r\nDate:\x20Sat,\x2001\x20Nov\x202025\x2016:49:58\x20GMT\r\nContent-Type:\x20text/html\r\nContent-Length:\x202097\r\nConnection:\x20close\r\nX-Sucuri-ID:\x2013038\r\nServer:\x20Sucuri/Cloudproxy\r\n\r\n&lt;!DOCTYPE\x20html&gt;\n&lt;html\x20lang=\&quot;en\&quot;\x20xmlns=\&quot;http://www\.w3\.org/1999/xhtml\&quot;&gt;\n&lt;head&gt;\n&lt;link\x20rel=\&quot;stylesheet\&quot;\x20href=\&quot;https://cdn\.sucuri\.net/sucuri-firewall-block\.css\&quot;\x20/&gt;\n&lt;section\x20class=\&quot;center\x20clearfix\&quot;&gt;\n&lt;meta\x20name=\&quot;viewport\&quot;\x20content=\&quot;width=device-width,\x20initial-scale=1\.0\&quot;\x20/&gt;\n&lt;title&gt;Sucuri\x20WebSite\x20Firewall\x20-\x20Not\x20Configured&lt;/title&gt;\n&lt;link\x20href=\&quot;https://fonts\.googleapis\.com/css\?family=Open\+Sans:400,300,600,700\&quot;\x20rel=\&quot;stylesheet\&quot;\x20type=\&quot;text/css\&quot;&gt;\n&lt;/head&gt;\n&lt;body&gt;\n&lt;div\x20id=\&quot;main-container\&quot;&gt;\n&lt;header\x20class=\&quot;app-header\x20clearfix\&quot;&gt;\n&lt;div\x20class=\&quot;wrap\&quot;&gt;\n&lt;a\x20href=\&quot;https://www\.sucuri\.net/\?utm_source=firewall_block\&quot;\x20class=\&quot;logo\&quot;&gt;&lt;/a&gt;\n&lt;span\x20class=\&quot;logo-neartext\&quot;&gt;Website\x20Firewall&lt;/span&gt;\n&lt;a\x20href=\&quot;https://sucuri\.net/\?utm_source=firewall_block\&quot;\x20class=&quot;);" tunnel="ssl" method="probed" conf="10"/><script id="http-server-header" output="Sucuri/Cloudproxy"><elem>Sucuri/Cloudproxy</elem>
+</script><script id="fingerprint-strings" output="&#xa;  GetRequest, HTTPOptions: &#xa;    HTTP/1.1 404 Not Found&#xa;    Date: Sat, 01 Nov 2025 16:49:58 GMT&#xa;    Content-Type: text/html&#xa;    Content-Length: 2097&#xa;    Connection: close&#xa;    X-Sucuri-ID: 13038&#xa;    Server: Sucuri/Cloudproxy&#xa;    &lt;!DOCTYPE html&gt;&#xa;    &lt;html lang=&quot;en&quot; xmlns=&quot;http://www.w3.org/1999/xhtml&quot;&gt;&#xa;    &lt;head&gt;&#xa;    &lt;link rel=&quot;stylesheet&quot; href=&quot;https://cdn.sucuri.net/sucuri-firewall-block.css&quot; /&gt;&#xa;    &lt;section class=&quot;center clearfix&quot;&gt;&#xa;    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot; /&gt;&#xa;    &lt;title&gt;Sucuri WebSite Firewall - Not Configured&lt;/title&gt;&#xa;    &lt;link href=&quot;https://fonts.googleapis.com/css?family=Open+Sans:400,300,600,700&quot; rel=&quot;stylesheet&quot; type=&quot;text/css&quot;&gt;&#xa;    &lt;/head&gt;&#xa;    &lt;body&gt;&#xa;    &lt;div id=&quot;main-container&quot;&gt;&#xa;    &lt;header class=&quot;app-header clearfix&quot;&gt;&#xa;    &lt;div class=&quot;wrap&quot;&gt;&#xa;    href=&quot;https://www.sucuri.net/?utm_source=firewall_block&quot; class=&quot;logo&quot;&gt;&lt;/a&gt;&#xa;    &lt;span class=&quot;logo-neartext&quot;&gt;Website Firewall&lt;/span&gt;&#xa;    href=&quot;https://sucuri.net/?utm_source=firewall_block&quot; class="><elem key="GetRequest, HTTPOptions">&#xa;    HTTP/1.1 404 Not Found&#xa;    Date: Sat, 01 Nov 2025 16:49:58 GMT&#xa;    Content-Type: text/html&#xa;    Content-Length: 2097&#xa;    Connection: close&#xa;    X-Sucuri-ID: 13038&#xa;    Server: Sucuri/Cloudproxy&#xa;    &lt;!DOCTYPE html&gt;&#xa;    &lt;html lang=&quot;en&quot; xmlns=&quot;http://www.w3.org/1999/xhtml&quot;&gt;&#xa;    &lt;head&gt;&#xa;    &lt;link rel=&quot;stylesheet&quot; href=&quot;https://cdn.sucuri.net/sucuri-firewall-block.css&quot; /&gt;&#xa;    &lt;section class=&quot;center clearfix&quot;&gt;&#xa;    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot; /&gt;&#xa;    &lt;title&gt;Sucuri WebSite Firewall - Not Configured&lt;/title&gt;&#xa;    &lt;link href=&quot;https://fonts.googleapis.com/css?family=Open+Sans:400,300,600,700&quot; rel=&quot;stylesheet&quot; type=&quot;text/css&quot;&gt;&#xa;    &lt;/head&gt;&#xa;    &lt;body&gt;&#xa;    &lt;div id=&quot;main-container&quot;&gt;&#xa;    &lt;header class=&quot;app-header clearfix&quot;&gt;&#xa;    &lt;div class=&quot;wrap&quot;&gt;&#xa;    href=&quot;https://www.sucuri.net/?utm_source=firewall_block&quot; class=&quot;logo&quot;&gt;&lt;/a&gt;&#xa;    &lt;span class=&quot;logo-neartext&quot;&gt;Website Firewall&lt;/span&gt;&#xa;    href=&quot;https://sucuri.net/?utm_source=firewall_block&quot; class=</elem>
+</script></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="80"/>
+<osmatch name="Nokia 3600i mobile phone" accuracy="90" line="95309">
+<osclass type="phone" vendor="Nokia" osfamily="Symbian OS" accuracy="90"><cpe>cpe:/o:nokia:symbian_os</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco Catalyst 1900 switch" accuracy="87" line="15698">
+<osclass type="switch" vendor="Cisco" osfamily="embedded" accuracy="87"><cpe>cpe:/h:cisco:catalyst_1900</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco ATA 188 VoIP adapter" accuracy="85" line="16093">
+<osclass type="VoIP adapter" vendor="Cisco" osfamily="embedded" accuracy="85"><cpe>cpe:/h:cisco:ata_188_voip_gateway</cpe></osclass>
+</osmatch>
+<osmatch name="Oracle Virtualbox Slirp NAT bridge" accuracy="85" line="98665">
+<osclass type="bridge" vendor="Oracle" osfamily="Virtualbox" accuracy="85"><cpe>cpe:/o:oracle:virtualbox</cpe></osclass>
+<osclass type="bridge" vendor="Slirp" osfamily="Slirp" accuracy="85"><cpe>cpe:/a:danny_gasparovski:slirp</cpe></osclass>
+</osmatch>
+<osmatch name="QEMU user mode network gateway" accuracy="85" line="100489">
+<osclass type="general purpose" vendor="QEMU" osfamily="QEMU" accuracy="85"><cpe>cpe:/a:qemu:qemu</cpe></osclass>
+</osmatch>
+</os>
+<times srtt="3720" rttvar="6850" to="100000"/>
+</host>
+<runstats><finished time="1762015890" timestr="Sat Nov  1 16:51:30 2025" summary="Nmap done at Sat Nov  1 16:51:30 2025; 1 IP address (1 host up) scanned in 160.76 seconds" elapsed="160.76" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

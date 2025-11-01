@@ -1,0 +1,4 @@
+# Nmap 7.95 scan initiated Sat Nov  1 16:48:49 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/192.124.249.38 -p 80,443 192.124.249.38
+Host: 192.124.249.38 (cloudproxy10038.sucuri.net)	Status: Up
+Host: 192.124.249.38 (cloudproxy10038.sucuri.net)	Ports: 80/open/tcp//http//nginx (reverse proxy)/, 443/open/tcp//ssl|https//Sucuri|Cloudproxy/
+# Nmap done at Sat Nov  1 16:51:30 2025 -- 1 IP address (1 host up) scanned in 160.76 seconds

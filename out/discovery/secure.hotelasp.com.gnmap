@@ -1,0 +1,4 @@
+# Nmap 7.95 scan initiated Sat Nov  1 16:48:45 2025 as: /usr/lib/nmap/nmap -Pn -sS -T4 -oA /home/kali/Desktop/Recon/out/discovery/secure.hotelasp.com -p 1-443 secure.hotelasp.com
+Host: 192.124.249.38 (cloudproxy10038.sucuri.net)	Status: Up
+Host: 192.124.249.38 (cloudproxy10038.sucuri.net)	Ports: 80/open/tcp//http///, 443/open/tcp//https///	Ignored State: filtered (441)
+# Nmap done at Sat Nov  1 16:48:49 2025 -- 1 IP address (1 host up) scanned in 4.27 seconds

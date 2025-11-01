@@ -1,10 +1,10 @@
 # Reconnaissance Report
 
-*Generated*: 2025-11-01 16:39 UTC
+*Generated*: 2025-11-01 16:51 UTC
 *Discovery scanner*: smrib (ports 1-443)
 *Targets*: hotelasp.com
-*Hosts in inventory*: 1
-*Total services recorded*: 3
+*Hosts in inventory*: 2
+*Total services recorded*: 5
 
 ## Target Scope
 1. hotelasp.com
@@ -17,9 +17,11 @@
 
 ## Host Overview
 - **160.153.248.110** – Hostnames: 110.248.153.160.host.secureserver.net; Ports: 21, 80, 443; OS: Oracle Virtualbox Slirp NAT bridge
+- **192.124.249.38** – Hostnames: cloudproxy10038.sucuri.net; Ports: 80, 443; OS: Nokia 3600i mobile phone
 
 ## Discovery Summary
 - 160.153.248.110: 21, 80, 443
+- 192.124.249.38: 80, 443
 
 ## Screenshots
 No screenshots captured (EyeWitness unavailable or no HTTP services detected).
