@@ -5,8 +5,8 @@
     "proto": "tcp",
     "status": "open",
     "note": "",
-    "time": "2025-11-01 16:17:26",
-    "duration_ms": 68
+    "time": "2025-11-01 16:38:35",
+    "duration_ms": 86
   },
   {
     "host": "160.153.248.110",
@@ -14,8 +14,8 @@
     "proto": "tcp",
     "status": "open",
     "note": "",
-    "time": "2025-11-01 16:17:26",
-    "duration_ms": 55
+    "time": "2025-11-01 16:38:35",
+    "duration_ms": 69
   },
   {
     "host": "160.153.248.110",
@@ -23,7 +23,7 @@
     "proto": "tcp",
     "status": "open",
     "note": "",
-    "time": "2025-11-01 16:17:27",
-    "duration_ms": 67
+    "time": "2025-11-01 16:38:36",
+    "duration_ms": 70
   }
 ]

@@ -1,2 +1,8 @@
-ip,hostnames,os,open_ports,services
-160.153.248.110,110.248.153.160.host.secureserver.net,Oracle Virtualbox Slirp NAT bridge,21;80;443,21:ftp:Microsoft ftpd;80:http:Microsoft HTTPAPI httpd 2.0 SSDP/UPnP;443:http:Microsoft HTTPAPI httpd 2.0 SSDP/UPnP
+ip,hostnames,os,os_accuracy,open_ports,services,related_domains
+160.153.248.110,110.248.153.160.host.secureserver.net,Oracle Virtualbox Slirp NAT bridge,98,21;80;443,"21/tcp ftp Microsoft ftpd cpe=cpe:/a:microsoft:ftp_service|cpe:/o:microsoft:windows scripts=ftp-syst=SYST: Windows_NT|ssl-date=2025-11-01T16:38:59+00:00; 0s from scanner time.|ssl-cert=Subject: commonName=WMSvc-SHA2-S160-153-248-11
+Not valid before: 2021-01-04T13:14:05
+Not valid after:  2031-01-02T13:14:05;80/tcp http Microsoft HTTPAPI httpd 2.0 SSDP/UPnP cpe=cpe:/o:microsoft:windows scripts=http-server-header=Microsoft-HTTPAPI/2.0|http-title=Not Found;443/tcp http Microsoft HTTPAPI httpd 2.0 SSDP/UPnP tunnel=ssl cpe=cpe:/o:microsoft:windows scripts=http-server-header=Microsoft-HTTPAPI/2.0|tls-alpn=h2
+  http/1.1|ssl-cert=Subject: commonName=localhost
+Subject Alternative Name: DNS:localhost
+Not valid before: 2021-01-05T10:55:57
+Not valid after:  2026-01-05T00:00:00|ssl-date=2025-11-01T16:38:58+00:00; 0s from scanner time.|http-title=Not Found",

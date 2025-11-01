@@ -1,6 +1,6 @@
 # Reconnaissance Report
 
-*Generated*: 2025-11-01 16:17 UTC
+*Generated*: 2025-11-01 16:39 UTC
 *Discovery scanner*: smrib (ports 1-443)
 *Targets*: hotelasp.com
 *Hosts in inventory*: 1

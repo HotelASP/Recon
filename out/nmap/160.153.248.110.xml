@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nmaprun>
 <?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
-<!-- Nmap 7.95 scan initiated Sat Nov  1 16:17:27 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 21,80,443 160.153.248.110 -->
-<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 21,80,443 160.153.248.110" start="1762013847" startstr="Sat Nov  1 16:17:27 2025" version="7.95" xmloutputversion="1.05">
+<!-- Nmap 7.95 scan initiated Sat Nov  1 16:38:36 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 21,80,443 160.153.248.110 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 21,80,443 160.153.248.110" start="1762015116" startstr="Sat Nov  1 16:38:36 2025" version="7.95" xmloutputversion="1.05">
 <scaninfo type="syn" protocol="tcp" numservices="3" services="21,80,443"/>
 <verbose level="0"/>
 <debugging level="0"/>
@@ -11,12 +11,14 @@
 <hostnames>
 </hostnames>
 </hosthint>
-<host starttime="1762013847" endtime="1762013870"><status state="up" reason="reset" reason_ttl="255"/>
+<host starttime="1762015117" endtime="1762015139"><status state="up" reason="reset" reason_ttl="255"/>
 <address addr="160.153.248.110" addrtype="ipv4"/>
 <hostnames>
 <hostname name="110.248.153.160.host.secureserver.net" type="PTR"/>
 </hostnames>
 <ports><port protocol="tcp" portid="21"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="ftp" product="Microsoft ftpd" ostype="Windows" method="probed" conf="10"><cpe>cpe:/a:microsoft:ftp_service</cpe><cpe>cpe:/o:microsoft:windows</cpe></service><script id="ftp-syst" output="&#xa;  SYST: Windows_NT"><elem key="SYST">Windows_NT</elem>
+</script><script id="ssl-date" output="2025-11-01T16:38:59+00:00; 0s from scanner time."><elem key="date">2025-11-01T16:38:59+00:00</elem>
+<elem key="delta">0.0</elem>
 </script><script id="ssl-cert" output="Subject: commonName=WMSvc-SHA2-S160-153-248-11&#xa;Not valid before: 2021-01-04T13:14:05&#xa;Not valid after:  2031-01-02T13:14:05"><table key="subject">
 <elem key="commonName">WMSvc-SHA2-S160-153-248-11</elem>
 </table>
@@ -47,13 +49,14 @@
 <elem key="md5">72de4ff6e6a27a05db40d358e0186ad6</elem>
 <elem key="sha1">cf1fcf290d64b80c9112ce5908ebd227ec15f6ec</elem>
 <elem key="pem">-&#45;&#45;&#45;&#45;BEGIN CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;MIIC+zCCAeOgAwIBAgIQH0bUjBhGUI5EtV9Jc73eVzANBgkqhkiG9w0BAQsFADAl&#xa;MSMwIQYDVQQDExpXTVN2Yy1TSEEyLVMxNjAtMTUzLTI0OC0xMTAeFw0yMTAxMDQx&#xa;MzE0MDVaFw0zMTAxMDIxMzE0MDVaMCUxIzAhBgNVBAMTGldNU3ZjLVNIQTItUzE2&#xa;MC0xNTMtMjQ4LTExMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApnKz&#xa;zFeWhOGGT/S6wx6p1BEkPyOkSkda3zE1/RO9rosGC0/JjKwcaKkGRW8JhGd46PDT&#xa;NFjMaf7G/r9PxP0C7RrfmbzzaMBuk298Mwj7Uivu7X826HSGFlDUYI0M7lS9b1Bh&#xa;BAddXNQFyoMCMC7ZJImk7I9MDwhcP4Dcx7Ggp2SlEtrZXGBlGqotBPalyuNwaeS1&#xa;8QBQsoiHAD5W9Hyo/aq+cZ59zIo1IEfgSzgxdSTlrkf605OZZ+8g7aD5uO/D3zJ1&#xa;fm2ERK7cd7y52LlaGBilm8bX9wZWqTnaY8u6T2xYLuT65Fg/HxBwxiptSZ8IwVrf&#xa;GiQiIqIiy/aIHdIwbwIDAQABoycwJTATBgNVHSUEDDAKBggrBgEFBQcDATAOBgNV&#xa;HQ8EBwMFALAAAAAwDQYJKoZIhvcNAQELBQADggEBAKQQu/asIGLKTC20he+9T0+n&#xa;KxmA8deFg91yNnye0MlxJtnrXhGYrBARykGbMFxuhOAAHUo88HFLNSvrJfIEfJ1Z&#xa;II5QM333QeVJYWvVcaFWGezaBq2sAG72/RTxSody4XqFmXEbxOMfbN/z4ZFzNTct&#xa;pq5N12WdTYly7iwBDVtvN2ZchBCdESmZQLBPqBgilmu9KT4u2vt+dCNT7EMMDQKH&#xa;EnCa57OfFkYG4t4XMDkqmVrZrL7/OIXfdK8VTKJC5O02oytTlNKC/630k4SkL43x&#xa;E56Zu5PIb8GBUJZKJbQFAQrXjvkk3OJ8i3e+CCc8WFHrke85VsVIfmbHkMZJOEs=&#xa;-&#45;&#45;&#45;&#45;END CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;</elem>
-</script><script id="ssl-date" output="2025-11-01T16:17:50+00:00; 0s from scanner time."><elem key="date">2025-11-01T16:17:50+00:00</elem>
-<elem key="delta">0.0</elem>
 </script></port>
 <port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="http" product="Microsoft HTTPAPI httpd" version="2.0" extrainfo="SSDP/UPnP" ostype="Windows" method="probed" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service><script id="http-server-header" output="Microsoft-HTTPAPI/2.0"><elem>Microsoft-HTTPAPI/2.0</elem>
 </script><script id="http-title" output="Not Found"><elem key="title">Not Found</elem>
 </script></port>
-<port protocol="tcp" portid="443"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="http" product="Microsoft HTTPAPI httpd" version="2.0" extrainfo="SSDP/UPnP" ostype="Windows" tunnel="ssl" method="probed" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service><script id="ssl-cert" output="Subject: commonName=localhost&#xa;Subject Alternative Name: DNS:localhost&#xa;Not valid before: 2021-01-05T10:55:57&#xa;Not valid after:  2026-01-05T00:00:00"><table key="subject">
+<port protocol="tcp" portid="443"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="http" product="Microsoft HTTPAPI httpd" version="2.0" extrainfo="SSDP/UPnP" ostype="Windows" tunnel="ssl" method="probed" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service><script id="http-server-header" output="Microsoft-HTTPAPI/2.0"><elem>Microsoft-HTTPAPI/2.0</elem>
+</script><script id="tls-alpn" output="&#xa;  h2&#xa;  http/1.1"><elem>h2</elem>
+<elem>http/1.1</elem>
+</script><script id="ssl-cert" output="Subject: commonName=localhost&#xa;Subject Alternative Name: DNS:localhost&#xa;Not valid before: 2021-01-05T10:55:57&#xa;Not valid after:  2026-01-05T00:00:00"><table key="subject">
 <elem key="commonName">localhost</elem>
 </table>
 <table key="issuer">
@@ -87,12 +90,9 @@
 <elem key="md5">41cf30f7e805937e84167ec6ff1b6ff5</elem>
 <elem key="sha1">faf7640bb3f1fd7f6ce995d8c649532f1d4fd7a6</elem>
 <elem key="pem">-&#45;&#45;&#45;&#45;BEGIN CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;MIIC7DCCAdSgAwIBAgIQOZY0u897LqRPEX8F6bYNLTANBgkqhkiG9w0BAQsFADAU&#xa;MRIwEAYDVQQDEwlsb2NhbGhvc3QwHhcNMjEwMTA1MTA1NTU3WhcNMjYwMTA1MDAw&#xa;MDAwWjAUMRIwEAYDVQQDEwlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IB&#xa;DwAwggEKAoIBAQCykjsMx5eSfsczEstYlWUiLlTLc64iXZtRvWJoGa++QGnNWXZj&#xa;ripRbyXIXHIVPlch4grPl7imoPZZh6JZLM9sy3Rvp5ubVhhH0cLhiqztE3SBuW25&#xa;sXP3E+VRyoKPfDODXMZdYvshBh7DGsu1Wshj1P1WXZh7Je3COVPFOXMvlFy6zBQ1&#xa;BHTK8KyrxUZ0Hz+a40NEFm24hbf+dRnUrM1fCsmvXkdJu/DVvZsxEfuu59QIuvgO&#xa;HsH0Kedn3dclfNKpSyLgyoORxlRXIxqrjlbv+9Y9uZdiuSbdsE24gHNdgWdbYLEa&#xa;Fdof8O+8ACjKE2f+hqOEq/b+UR3Cyxif5Vm7AgMBAAGjOjA4MAsGA1UdDwQEAwIE&#xa;sDATBgNVHSUEDDAKBggrBgEFBQcDATAUBgNVHREEDTALgglsb2NhbGhvc3QwDQYJ&#xa;KoZIhvcNAQELBQADggEBAH/TFzoINj8u4Tw+gcivr7uMwnTyZ9TkfM+NDT/tPzj6&#xa;v0Q/L1j7ZX1bO+3RBYW+LAyrm9xsDJJ2efZS1i6UxhuPW8AIuGh7q6mfxUr5L2vT&#xa;9nncyMLjSbJRdSTOTs0g01e+bPzOexyNqFTC3XZYFg8XrqF1eEOxh87ALKNpCoDY&#xa;OFfPVMRn62rJ7lRhdT8C0quYqqyFxaSKm52dDGkKNh8vqVaEffy4PiQ/YOVnZUrZ&#xa;+962sFQ50MTPhRqFTjjFHbQsdzlLxS6nCD4dw1VAklcyVYQ1nddVpMzuhEj4JjQs&#xa;tltWe1mvMaK4ppr5KJRe4fTF9HuhSKNchIuSJjF9thc=&#xa;-&#45;&#45;&#45;&#45;END CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;</elem>
-</script><script id="tls-alpn" output="&#xa;  h2&#xa;  http/1.1"><elem>h2</elem>
-<elem>http/1.1</elem>
-</script><script id="http-title" output="Not Found"><elem key="title">Not Found</elem>
-</script><script id="http-server-header" output="Microsoft-HTTPAPI/2.0"><elem>Microsoft-HTTPAPI/2.0</elem>
-</script><script id="ssl-date" output="2025-11-01T16:17:49+00:00; 0s from scanner time."><elem key="date">2025-11-01T16:17:49+00:00</elem>
+</script><script id="ssl-date" output="2025-11-01T16:38:58+00:00; 0s from scanner time."><elem key="date">2025-11-01T16:38:58+00:00</elem>
 <elem key="delta">0.0</elem>
+</script><script id="http-title" output="Not Found"><elem key="title">Not Found</elem>
 </script></port>
 </ports>
 <os><portused state="open" proto="tcp" portid="21"/>
@@ -100,18 +100,18 @@
 <osclass type="bridge" vendor="Oracle" osfamily="Virtualbox" accuracy="98"><cpe>cpe:/o:oracle:virtualbox</cpe></osclass>
 <osclass type="bridge" vendor="Slirp" osfamily="Slirp" accuracy="98"><cpe>cpe:/a:danny_gasparovski:slirp</cpe></osclass>
 </osmatch>
-<osmatch name="AT&amp;T BGW210 voice gateway" accuracy="95" line="9785">
-<osclass type="VoIP adapter" vendor="AT&amp;T" osfamily="embedded" accuracy="95"/>
+<osmatch name="AT&amp;T BGW210 voice gateway" accuracy="94" line="9785">
+<osclass type="VoIP adapter" vendor="AT&amp;T" osfamily="embedded" accuracy="94"/>
 </osmatch>
-<osmatch name="QEMU user mode network gateway" accuracy="94" line="100506">
-<osclass type="general purpose" vendor="QEMU" osfamily="QEMU" accuracy="94"><cpe>cpe:/a:qemu:qemu</cpe></osclass>
+<osmatch name="QEMU user mode network gateway" accuracy="93" line="100506">
+<osclass type="general purpose" vendor="QEMU" osfamily="QEMU" accuracy="93"><cpe>cpe:/a:qemu:qemu</cpe></osclass>
 </osmatch>
 </os>
-<tcpsequence index="17" difficulty="Good luck!" values="54300601,5431FA01,5432F401,5433EE01,5434E801,5435E201"/>
-<ipidsequence class="Busy server or unknown class" values="746,768,76B,76C,76D,76E"/>
+<tcpsequence index="17" difficulty="Good luck!" values="5DC71A01,5DC81401,5DC90E01,5DCA0801,5DCB0201,5DCCF601"/>
+<ipidsequence class="Busy server or unknown class" values="29C4,29C5,29C6,29C9,29D7,29D8"/>
 <tcptssequence class="none returned (unsupported)"/>
-<times srtt="25069" rttvar="30730" to="147989"/>
+<times srtt="22255" rttvar="25359" to="123691"/>
 </host>
-<runstats><finished time="1762013870" timestr="Sat Nov  1 16:17:50 2025" summary="Nmap done at Sat Nov  1 16:17:50 2025; 1 IP address (1 host up) scanned in 22.64 seconds" elapsed="22.64" exit="success"/><hosts up="1" down="0" total="1"/>
+<runstats><finished time="1762015139" timestr="Sat Nov  1 16:38:59 2025" summary="Nmap done at Sat Nov  1 16:38:59 2025; 1 IP address (1 host up) scanned in 22.40 seconds" elapsed="22.40" exit="success"/><hosts up="1" down="0" total="1"/>
 </runstats>
 </nmaprun>

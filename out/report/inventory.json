@@ -9,23 +9,108 @@
     "services": [
       {
         "port": 21,
+        "proto": "tcp",
+        "state": "open",
+        "reason": "syn-ack",
         "service": "ftp",
-        "version": "Microsoft ftpd"
+        "version": "Microsoft ftpd",
+        "product": "Microsoft ftpd",
+        "extrainfo": null,
+        "tunnel": null,
+        "banner": null,
+        "ostype": "Windows",
+        "method": "probed",
+        "cpe": [
+          "cpe:/a:microsoft:ftp_service",
+          "cpe:/o:microsoft:windows"
+        ],
+        "scripts": [
+          {
+            "id": "ftp-syst",
+            "output": "\n  SYST: Windows_NT"
+          },
+          {
+            "id": "ssl-date",
+            "output": "2025-11-01T16:38:59+00:00; 0s from scanner time."
+          },
+          {
+            "id": "ssl-cert",
+            "output": "Subject: commonName=WMSvc-SHA2-S160-153-248-11\nNot valid before: 2021-01-04T13:14:05\nNot valid after:  2031-01-02T13:14:05"
+          }
+        ]
       },
       {
         "port": 80,
+        "proto": "tcp",
+        "state": "open",
+        "reason": "syn-ack",
         "service": "http",
-        "version": "Microsoft HTTPAPI httpd 2.0 SSDP/UPnP"
+        "version": "Microsoft HTTPAPI httpd 2.0 SSDP/UPnP",
+        "product": "Microsoft HTTPAPI httpd",
+        "extrainfo": "SSDP/UPnP",
+        "tunnel": null,
+        "banner": null,
+        "ostype": "Windows",
+        "method": "probed",
+        "cpe": [
+          "cpe:/o:microsoft:windows"
+        ],
+        "scripts": [
+          {
+            "id": "http-server-header",
+            "output": "Microsoft-HTTPAPI/2.0"
+          },
+          {
+            "id": "http-title",
+            "output": "Not Found"
+          }
+        ]
       },
       {
         "port": 443,
+        "proto": "tcp",
+        "state": "open",
+        "reason": "syn-ack",
         "service": "http",
-        "version": "Microsoft HTTPAPI httpd 2.0 SSDP/UPnP"
+        "version": "Microsoft HTTPAPI httpd 2.0 SSDP/UPnP",
+        "product": "Microsoft HTTPAPI httpd",
+        "extrainfo": "SSDP/UPnP",
+        "tunnel": "ssl",
+        "banner": null,
+        "ostype": "Windows",
+        "method": "probed",
+        "cpe": [
+          "cpe:/o:microsoft:windows"
+        ],
+        "scripts": [
+          {
+            "id": "http-server-header",
+            "output": "Microsoft-HTTPAPI/2.0"
+          },
+          {
+            "id": "tls-alpn",
+            "output": "\n  h2\n  http/1.1"
+          },
+          {
+            "id": "ssl-cert",
+            "output": "Subject: commonName=localhost\nSubject Alternative Name: DNS:localhost\nNot valid before: 2021-01-05T10:55:57\nNot valid after:  2026-01-05T00:00:00"
+          },
+          {
+            "id": "ssl-date",
+            "output": "2025-11-01T16:38:58+00:00; 0s from scanner time."
+          },
+          {
+            "id": "http-title",
+            "output": "Not Found"
+          }
+        ]
       }
     ],
     "hostnames": [
       "110.248.153.160.host.secureserver.net"
     ],
-    "os": "Oracle Virtualbox Slirp NAT bridge"
+    "os": "Oracle Virtualbox Slirp NAT bridge",
+    "os_accuracy": "98",
+    "related_domains": []
   }
 ]

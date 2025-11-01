@@ -1,4 +1,4 @@
-# Nmap 7.95 scan initiated Sat Nov  1 16:17:27 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 21,80,443 160.153.248.110
+# Nmap 7.95 scan initiated Sat Nov  1 16:38:36 2025 as: /usr/lib/nmap/nmap -sC -sV -O -T4 -oA /home/kali/Desktop/Recon/out/nmap/160.153.248.110 -p 21,80,443 160.153.248.110
 Host: 160.153.248.110 (110.248.153.160.host.secureserver.net)	Status: Up
 Host: 160.153.248.110 (110.248.153.160.host.secureserver.net)	Ports: 21/open/tcp//ftp//Microsoft ftpd/, 80/open/tcp//http//Microsoft HTTPAPI httpd 2.0 (SSDP|UPnP)/, 443/open/tcp//ssl|http//Microsoft HTTPAPI httpd 2.0 (SSDP|UPnP)/	Seq Index: 17	IP ID Seq: Busy server or unknown class
-# Nmap done at Sat Nov  1 16:17:50 2025 -- 1 IP address (1 host up) scanned in 22.64 seconds
+# Nmap done at Sat Nov  1 16:38:59 2025 -- 1 IP address (1 host up) scanned in 22.40 seconds
