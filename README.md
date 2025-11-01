@@ -39,8 +39,9 @@ python3 run_recon.py [options]
 | Option | Description |
 | --- | --- |
 | `--scanner {masscan,smrib,nmap}` | Selects the discovery stage implementation (default: `masscan`). |
-| `--top-ports N` | Scans only the top `N` ports for discovery (mutually exclusive with `--port-range`). |
-| `--port-range RANGE` | Explicit port range or comma-separated list, e.g. `1-1024,3389`. Overrides `--top-ports`. |
+| `--top-ports N` | Scans only the top `N` ports for discovery (mutually exclusive with `--port-range` and `--ports`). |
+| `--port-range RANGE` | Explicit port range or comma-separated list, e.g. `1-1024,3389`. Overrides `--top-ports` and is mutually exclusive with `--ports`. |
+| `--ports LIST` | Comma-separated list of TCP ports to scan and fingerprint (overrides discovery results and disables other port selectors). |
 | `--masscan-rate RATE` | Packet rate for Masscan when it is the chosen scanner (default: `1000`). |
 | `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `$SMRIB_PATH` env var or `~/Desktop/RT/smrib.py`). |
 | `--smrib-extra ...` | Additional arguments appended to the `smrib.py` command. Everything after this flag is forwarded. |
@@ -52,8 +53,8 @@ python3 run_recon.py [options]
 | `--eyewitness-threads N` | Number of parallel EyeWitness browser threads (default: `4`). |
 | `--sudo` | Prefix scanner commands with `sudo` when the binary is available. |
 
-Passing both `--top-ports` and `--port-range` results in an error. When neither
-is supplied, the script scans the full `1-65535` range.
+Passing more than one of `--top-ports`, `--port-range`, or `--ports` results in
+an error. When none is supplied, the script scans the top 100 ports.
 
 ## Workflow
 
