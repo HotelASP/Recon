@@ -76,7 +76,9 @@ python3 run_recon.py [options]
 
 By default the discovery stage starts with `smrib.py`. The script downloads the
 HotelASP/Scanner repository on-demand into `scanner/` the first time it is
-needed and reuses that cached copy on subsequent runs. If the download cannot be
+needed and reuses that cached copy on subsequent runs. smrib is invoked with
+`--show-only-open` so its JSON output contains only confirmed open ports,
+avoiding noise when the results are merged later. If the download cannot be
 completed, the tool notifies you and automatically switches the discovery stage
 to Nmap—mirroring what you would achieve manually with `--scanner nmap`.
 

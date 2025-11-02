@@ -1016,6 +1016,7 @@ def run_smrib(
     _ensure_directory(SMRIB_DIR)
     cmd.extend(["--json", str(SMRIB_JSON)])
     cmd.extend(["--targets", ",".join(targets)])
+    cmd.append("--show-only-open")
     if extra_args:
         cmd.extend(extra_args)
 
