@@ -119,6 +119,9 @@ Both switches print the same detailed usage summary.
   python3 run_recon.py --targets-file targets_new.txt --scanner masscan
   ```
 
+  You can mix individual ports and ranges when using `--ports`, for example
+  `--ports 80,443,8000-8100`.
+
 ### Command-line Options
 
 | Option | Description | Example |
@@ -127,7 +130,7 @@ Both switches print the same detailed usage summary.
 | `--scanner {masscan,smrib,nmap}` | Select the discovery stage implementation (default: `smrib`). | `python3 run_recon.py --scanner nmap` |
 | `--top-ports N` | Scan only the top `N` ports (mutually exclusive with `--port-range`/`--ports`). | `--top-ports 200` |
 | `--port-range RANGE` | Explicit port range or comma-separated list (overrides `--top-ports`). | `--port-range 1-1024,3389` |
-| `--ports LIST` | Comma-separated list of TCP ports to probe and fingerprint (bypasses discovery results). | `--ports 80,443,8443` |
+| `--ports LIST` | Comma-separated TCP ports and/or ranges to probe and fingerprint (bypasses discovery results). | `--ports 80,443,8000-8100` |
 | `--masscan-rate RATE` | Packet rate for Masscan scans (default: `1000`). | `--masscan-rate 5000` |
 | `--masscan-status-interval SECONDS` | Seconds between Masscan status updates (`0` silences progress). | `--masscan-status-interval 5` |
 | `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `./scanner/smrib.py` or `$SMRIB_PATH`). | `--smrib-path ~/tools/smrib.py` |
