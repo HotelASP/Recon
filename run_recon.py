@@ -14,11 +14,12 @@
 # ``inventory.csv`` and summarised in ``report.md`` together with any
 # EyeWitness screenshots.
 #
-# sudo python3 run_recon.py --scanner nmap --targets-file targets.txt  --top-ports 200 --targets-new-export --search-related-data 
-# sudo python3 run_recon.py --scanner smrib --targets hotelasp.com --top-ports 200 --targets-new-export --harvester-sources 'crtsh, bing' --search-related-data
-# sudo python3 run_recon.py --scanner smrib --targets-file targets_new.txt --top-ports 200 --targets-new-export --harvester-sources 'crtsh, bing' --search-related-data
-# sudo python3 run_recon.py --scanner smrib --targets-file targets.txt --port-range 1-65535 --targets-new-export --search-related-data
-# sudo python3 run_recon.py --scanner nmap --targets-file targets.txt --port-range 1-65535 --targets-new-export --search-related-data
+# python3 run_recon.py --help
+# python3 run_recon.py --targets-file targets.txt  --top-ports 200 --targets-new-export --search-related-data 
+# python3 run_recon.py --scanner nmap --targets hotelasp.com --top-ports 200 --targets-new-export --harvester-sources 'crtsh, bing' --search-related-data
+# python3 run_recon.py --scanner masscan --targets-file targets.txt --top-ports 200 --targets-new-export --harvester-sources 'crtsh, bing' --search-related-data
+# python3 run_recon.py --scanner smrib --smrib-extra '--fast --shuffle' --targets-file targets.txt --port-range 1-1024 --targets-new-export --search-related-data
+# python3 run_recon.py --scanner nmap --targets-file targets.txt --port-range 1-1024 --targets-new-export --search-related-data
 #
 
 from __future__ import annotations
