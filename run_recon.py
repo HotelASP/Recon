@@ -123,6 +123,56 @@ _SILENT_MODE = False
 _LOG_FILE: Optional[TextIO] = None
 
 
+def _run_git_command(*args: str) -> Optional[str]:
+    # Execute a git command relative to the repository root, returning the
+    # stripped stdout when successful. The helper hides errors so the caller can
+    # fall back gracefully when git is unavailable or the repo lacks the
+    # requested refs.
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), *args],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+
+    output = result.stdout.strip()
+    return output or None
+
+
+def _format_git_version_message() -> Optional[str]:
+    # Build a concise summary of the local and upstream git revisions so the
+    # operator can easily identify which code versions are in play.
+
+    local_commit = _run_git_command("rev-parse", "--short", "HEAD")
+    if not local_commit:
+        return None
+
+    branch_name = _run_git_command("rev-parse", "--abbrev-ref", "HEAD")
+    branch_label = branch_name if branch_name and branch_name != "HEAD" else None
+
+    upstream_ref = _run_git_command("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    upstream_commit = None
+    if upstream_ref:
+        upstream_commit = _run_git_command("rev-parse", "--short", "@{u}")
+
+    if upstream_ref and upstream_commit:
+        remote_text = f"remote {upstream_ref} @ {upstream_commit}"
+    else:
+        remote_text = "remote version unavailable"
+
+    if branch_label:
+        local_text = f"{branch_label} @ {local_commit}"
+    else:
+        local_text = local_commit
+
+    return f"[+] Git version – local {local_text}; {remote_text}"
+
+
 def _parse_boolean_option(value: Union[str, bool]) -> bool:
     # Interpret common truthy/falsey strings for command-line flags that
     # explicitly accept yes/no style values.
@@ -2294,6 +2344,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     global _SILENT_MODE
     _SILENT_MODE = args.silent
+
+    git_message = _format_git_version_message()
+    if git_message:
+        echo(git_message, essential=True)
 
     if args.scanner == "smrib":
         smrib_path = Path(args.smrib_path).expanduser()
