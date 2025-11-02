@@ -24,7 +24,7 @@ inventory and Markdown report.
 3. Execute a reconnaissance run:
 
    ```bash
-   python3 run_recon.py --scanner masscan --top-ports 200
+   python3 run_recon.py --scanner smrib --top-ports 200
    ```
 
    The command wipes `out/` (unless `--preserve-output` is set), performs a fast
