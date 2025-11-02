@@ -201,13 +201,15 @@ def echo(message: str, *, essential: bool = False) -> None:
 def echo_stage(stage_number: int, title: str, *, summary: Optional[str] = None) -> None:
     """Emit a prominent stage heading so operators can follow progress."""
 
-    header = f"[+] Stage {stage_number}: {title}"
-    border = "=" * len(header)
+    header = f"[+] STAGE {stage_number}: {title}"
+    border = "=" * len(summary)
     echo("", essential=True)
+    echo(border, essential=True)
     echo(border, essential=True)
     echo(header, essential=True)
     if summary:
         echo(f"    {summary}", essential=True)
+    echo(border, essential=True)
     echo(border, essential=True)
 
 
