@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, TextIO, Tuple, Union
 
 from tools import aggregate
+from tools.ownership import ensure_path_owner, ensure_tree_owner
 
 
 ROOT = Path(__file__).resolve().parent
@@ -116,6 +117,13 @@ def _remove_path(path: Path) -> None:
         return
 
 
+def _ensure_directory(path: Path) -> None:
+    """Create ``path`` (and parents) and ensure it is owned by the target user."""
+
+    path.mkdir(parents=True, exist_ok=True)
+    ensure_path_owner(path, parents=True)
+
+
 def reset_output_tree() -> None:
     """Clear artefacts from previous runs to avoid cross-run contamination."""
 
@@ -148,13 +156,14 @@ def _ensure_log_file() -> TextIO:
 
     global _LOG_FILE
     if _LOG_FILE is None:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        _ensure_directory(LOG_DIR)
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
         _LOG_FILE = LOG_PATH.open("w", encoding="utf-8")
         _LOG_FILE.write("=" * 72 + "\n")
         _LOG_FILE.write(f"Reconnaissance run started {timestamp}\n")
         _LOG_FILE.write("=" * 72 + "\n")
         _LOG_FILE.flush()
+        ensure_path_owner(LOG_PATH)
     return _LOG_FILE
 
 
@@ -259,7 +268,7 @@ def ensure_writable_directory(path: Path) -> None:
     """Ensure that the provided directory exists and is writable."""
 
     try:
-        path.mkdir(parents=True, exist_ok=True)
+        _ensure_directory(path)
     except PermissionError as exc:
         raise SystemExit(
             f"Unable to create directory '{path}': {exc}. Adjust its permissions or "
@@ -601,6 +610,7 @@ def load_targets(path: Path, *, create_default: bool) -> List[TargetDefinition]:
         if not create_default:
             raise SystemExit(f"Targets file not found: {path}")
         path.write_text("hackthissite.org\n", encoding="utf-8")
+        ensure_path_owner(path, parents=True)
         echo(f"[+] Created default targets file at {path} with hackthissite.org", essential=True)
 
     targets: List[TargetDefinition] = []
@@ -813,7 +823,7 @@ def run_masscan(
 
     warn_privileges("masscan", use_sudo)
 
-    MASSCAN_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_directory(MASSCAN_DIR)
     cmd = [
         "masscan",
         "--rate",
@@ -840,6 +850,7 @@ def run_masscan(
         f"at {rate} packets/sec"
     )
     success = run_command(prefix_command(cmd, use_sudo), description=description)
+    ensure_tree_owner(MASSCAN_DIR)
     if not success:
         return {}
 
@@ -863,7 +874,7 @@ def run_smrib(
 
     cmd: List[str] = [sys.executable or "python3", str(script_path)]
     cmd.extend(port_selection.smrib_args)
-    SMRIB_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_directory(SMRIB_DIR)
     cmd.extend(["--json", str(SMRIB_JSON)])
     cmd.extend(["--targets", ",".join(targets)])
     if extra_args:
@@ -874,6 +885,7 @@ def run_smrib(
         f"across {port_selection.description}"
     )
     success = run_command(prefix_command(cmd, use_sudo), description=description)
+    ensure_tree_owner(SMRIB_DIR)
     if not success:
         return {}
 
@@ -894,7 +906,7 @@ def run_nmap_discovery(
 
     warn_privileges("nmap", use_sudo)
 
-    DISCOVERY_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_directory(DISCOVERY_DIR)
     discovered: Dict[str, Set[int]] = {}
     for target in targets:
         sanitized = re.sub(r"[^0-9A-Za-z_.-]", "_", target)
@@ -914,6 +926,7 @@ def run_nmap_discovery(
             f"Nmap discovery for {target} – TCP connect/SYN sweep focusing on {port_summary}"
         )
         run_command(prefix_command(cmd, use_sudo), description=description)
+        ensure_tree_owner(DISCOVERY_DIR)
 
     results = aggregate.parse_nmap_dir(str(DISCOVERY_DIR))
     for ip, data in results.items():
@@ -1001,7 +1014,7 @@ def run_nmap_fingerprinting(
 
     warn_privileges("nmap", use_sudo)
 
-    NMAP_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_directory(NMAP_DIR)
     actionable_hosts = {target: ports for target, ports in hosts.items() if ports}
 
     if not actionable_hosts:
@@ -1029,6 +1042,7 @@ def run_nmap_fingerprinting(
             f"against {port_scope}"
         )
         run_command(prefix_command(cmd, use_sudo), description=description)
+        ensure_tree_owner(NMAP_DIR)
 
 
 def export_target_file(
@@ -1082,11 +1096,12 @@ def export_target_file(
         else:
             lines.append(target)
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_directory(path.parent)
     content = "\n".join(lines)
     if content:
         content += "\n"
     path.write_text(content, encoding="utf-8")
+    ensure_path_owner(path)
     echo(f"[+] Exported {len(sorted_targets)} target(s) to {path}", essential=True)
 
 
@@ -1095,6 +1110,7 @@ def export_not_processed_targets(entries: Iterable[str]) -> None:
     if values:
         with TARGETS_NOT_PROCESSED_FILE.open("w", encoding="utf-8") as file:
             file.write("\n".join(values) + "\n")
+        ensure_path_owner(TARGETS_NOT_PROCESSED_FILE)
         echo(
             f"[+] Logged {len(values)} target(s) ignored from OSINT in {TARGETS_NOT_PROCESSED_FILE}",
             essential=True,
@@ -1268,7 +1284,7 @@ def _harvester_supports_option(executable: str, option: str) -> bool:
 def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
     # Collect OSINT for each discovered domain, falling back to built-in DNS
     # commands when theHarvester is not present.
-    HARVESTER_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_directory(HARVESTER_DIR)
     harvester_path = shutil.which("theHarvester")
 
     for domain in sorted(set(domains)):
@@ -1302,6 +1318,7 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
                 f"theHarvester OSINT for {domain} – enumerating hosts via sources: {args.harvester_sources}"
             )
             run_command(cmd, description=description)
+            ensure_tree_owner(HARVESTER_DIR)
         else:
             echo(
                 f"[!] theHarvester not available – collecting basic DNS data for {domain}",
@@ -1313,6 +1330,9 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
                 subprocess.run(["host", domain], stdout=hfile, stderr=subprocess.STDOUT)
             with dig_out.open("w", encoding="utf-8") as dfile:
                 subprocess.run(["dig", "+short", "any", domain], stdout=dfile, stderr=subprocess.STDOUT)
+            ensure_path_owner(host_out)
+            ensure_path_owner(dig_out)
+            ensure_tree_owner(HARVESTER_DIR)
 
 
 def _resolve_related_targets(candidates: Iterable[str]) -> List[str]:
@@ -1335,7 +1355,7 @@ def _resolve_related_targets(candidates: Iterable[str]) -> List[str]:
 def aggregate_results() -> None:
     # Invoke the aggregation helper to merge outputs from every stage into the
     # consolidated inventory artefacts.
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_directory(REPORT_DIR)
     cmd = [
         sys.executable or "python3",
         str(ROOT / "tools" / "aggregate.py"),
@@ -1356,6 +1376,7 @@ def aggregate_results() -> None:
         "Aggregating scan outputs – merging Masscan, Nmap, smrib, and theHarvester artefacts"
     )
     run_command(cmd, description=description, check=False)
+    ensure_tree_owner(REPORT_DIR)
 
 
 def display_inventory_contents() -> None:
@@ -1548,6 +1569,7 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
         return []
 
     ensure_writable_directory(EYEWITNESS_DIR)
+    ensure_tree_owner(EYEWITNESS_DIR)
     pretty_print_stage_inputs("EyeWitness URLs", [(url,) for url in urls])
 
     if not urls:
@@ -1562,7 +1584,7 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
     for url in urls:
         safe_dir = re.sub(r"[^0-9A-Za-z_.-]", "_", url)
         output_dir = EYEWITNESS_DIR / safe_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_directory(output_dir)
         output_path = str(output_dir.resolve())
         cmd = [
             eyewitness_path,
@@ -1581,6 +1603,7 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
             f"EyeWitness capture for {url} – headless browser screenshot of the HTTP(S) service"
         )
         run_command(cmd, description=description)
+        ensure_tree_owner(output_dir)
         screenshots.extend(output_dir.rglob("*.png"))
 
     return screenshots
@@ -1636,7 +1659,7 @@ def write_report(
     # Produce a Markdown summary of the recon run that references the generated
     # inventory and any captured screenshots.
     inventory = load_inventory()
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_directory(OUT_DIR)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     total_hosts = len(inventory)
@@ -1855,8 +1878,9 @@ def write_report(
         else:
             lines.append("No screenshots captured (EyeWitness unavailable or no HTTP services detected).")
 
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_directory(REPORT_DIR)
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
+    ensure_path_owner(REPORT_PATH)
     echo(f"[+] Wrote report to {REPORT_PATH}", essential=True)
 
 

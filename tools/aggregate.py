@@ -39,8 +39,14 @@ import os
 import re
 import shlex
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional, Sequence
+
+try:  # pragma: no cover - runtime dependency for script execution
+    from .ownership import ensure_path_owner
+except ImportError:  # pragma: no cover - fallback when executed as a script
+    from ownership import ensure_path_owner
 
 
 def parse_masscan_json(path: str) -> Dict[str, Dict[str, List[int]]]:
@@ -968,6 +974,7 @@ def export_json(bundle: InventoryBundle, outpath: str) -> None:
 
     with open(outpath, "w", encoding="utf-8") as file:
         json.dump(payload, file, indent=2)
+    ensure_path_owner(Path(outpath))
 
 
 def export_csv(bundle: InventoryBundle, outpath: str) -> None:
@@ -1058,6 +1065,7 @@ def export_csv(bundle: InventoryBundle, outpath: str) -> None:
                     harvester_blob,
                 ]
             )
+    ensure_path_owner(Path(outpath))
 
 
 def main() -> None:
@@ -1113,9 +1121,11 @@ def main() -> None:
     json_parent = os.path.dirname(args.out_json)
     if json_parent:
         os.makedirs(json_parent, exist_ok=True)
+        ensure_path_owner(Path(json_parent), parents=True)
     csv_parent = os.path.dirname(args.out_csv)
     if csv_parent and csv_parent != json_parent:
         os.makedirs(csv_parent, exist_ok=True)
+        ensure_path_owner(Path(csv_parent), parents=True)
     export_json(bundle, args.out_json)
     export_csv(bundle, args.out_csv)
 
