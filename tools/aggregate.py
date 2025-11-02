@@ -210,6 +210,152 @@ def parse_smrib_json(path: str) -> Dict[str, Dict[str, List[int]]]:
     return hosts
 
 
+def parse_nikto_dir(path: str) -> Dict[str, Dict[int, Dict[str, Any]]]:
+    """Read Nikto JSON exports and return findings organised by host/port."""
+
+    results: Dict[str, Dict[int, Dict[str, Any]]] = {}
+
+    if not os.path.isdir(path):
+        return results
+
+    for entry in os.listdir(path):
+        if not entry.endswith(".json"):
+            continue
+
+        file_path = os.path.join(path, entry)
+        try:
+            with open(file_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except Exception:
+            continue
+
+        records: List[Mapping[str, Any]] = []
+        if isinstance(payload, dict):
+            records = [payload]
+        elif isinstance(payload, list):
+            records = [item for item in payload if isinstance(item, Mapping)]
+        else:
+            continue
+
+        for record in records:
+            host = (
+                record.get("ip")
+                or record.get("host")
+                or record.get("hostname")
+                or record.get("target")
+                or record.get("site")
+            )
+            if not isinstance(host, str) or not host.strip():
+                continue
+            host = host.strip()
+
+            raw_port = (
+                record.get("port")
+                or record.get("targetport")
+                or record.get("target_port")
+                or record.get("site_port")
+            )
+            port: Optional[int] = None
+            if isinstance(raw_port, int):
+                port = raw_port
+            elif isinstance(raw_port, float):
+                port = int(raw_port)
+            elif isinstance(raw_port, str) and raw_port.strip().isdigit():
+                port = int(raw_port.strip())
+            if not port or port <= 0:
+                continue
+
+            collections = []
+            for key in ("vulnerabilities", "findings", "issues", "items", "vulns"):
+                value = record.get(key)
+                if isinstance(value, list):
+                    collections = value
+                    break
+            if not collections and isinstance(record.get("scanresults"), list):
+                collections = record.get("scanresults")  # type: ignore[assignment]
+            if not collections and isinstance(record.get("vulnerability"), list):
+                collections = record.get("vulnerability")  # type: ignore[assignment]
+
+            findings: List[Dict[str, Any]] = []
+            for finding in collections:
+                if not isinstance(finding, Mapping):
+                    continue
+
+                description = (
+                    finding.get("description")
+                    or finding.get("msg")
+                    or finding.get("message")
+                    or finding.get("finding")
+                )
+                risk = finding.get("risk") or finding.get("severity") or finding.get("level")
+                identifier = (
+                    finding.get("id")
+                    or finding.get("osvdb")
+                    or finding.get("pluginid")
+                    or finding.get("number")
+                )
+                method = finding.get("method") or finding.get("http_method")
+                url = finding.get("url") or finding.get("uri") or finding.get("path")
+
+                references: List[str] = []
+                for ref_key in ("references", "refs", "links"):
+                    ref_value = finding.get(ref_key)
+                    if isinstance(ref_value, list):
+                        references.extend(str(ref).strip() for ref in ref_value if ref)
+                    elif isinstance(ref_value, str):
+                        references.extend(
+                            ref.strip() for ref in ref_value.replace(";", ",").split(",") if ref.strip()
+                        )
+                references = sorted({ref for ref in references if ref})
+
+                entry = {
+                    "description": description or "Nikto reported an issue",
+                    "risk": risk,
+                    "id": identifier,
+                    "method": method,
+                    "url": url,
+                    "references": references,
+                }
+
+                banner = finding.get("banner") or record.get("banner")
+                if banner:
+                    entry["banner"] = banner
+
+                findings.append(entry)
+
+            if not findings:
+                continue
+
+            ssl_flag = False
+            scheme = record.get("scheme") or record.get("protocol")
+            if isinstance(scheme, str) and scheme.lower() in {"https", "ssl"}:
+                ssl_flag = True
+            if record.get("ssl") in (True, 1, "1", "true", "True"):
+                ssl_flag = True
+            if record.get("portssl") in (True, 1, "1", "true", "True"):
+                ssl_flag = True
+
+            host_entry = results.setdefault(host, {})
+            port_entry = host_entry.setdefault(port, {"findings": [], "ssl": ssl_flag})
+            if ssl_flag:
+                port_entry["ssl"] = True
+
+            existing = port_entry.setdefault("findings", [])
+            seen_keys = {
+                (item.get("description"), item.get("id"))
+                for item in existing
+                if isinstance(item, Mapping)
+            }
+            for item in findings:
+                key = (item.get("description"), item.get("id"))
+                if key in seen_keys:
+                    continue
+                existing.append(item)
+                seen_keys.add(key)
+
+    return results
+
+
 def parse_nmap_dir(nmap_dir: str) -> Dict[str, Dict[str, Iterable[Dict[str, Optional[str]]]]]:
     """Load one or more Nmap XML files and extract host information.
 
@@ -765,6 +911,7 @@ def parse_harvester_dir(harv_dir: str) -> Dict[str, HarvesterDomainResult]:
 
 def build_inventory(
     nmap_inv: Dict[str, Dict[str, Iterable[Dict[str, Optional[str]]]]],
+    nikto_inv: Dict[str, Dict[int, Dict[str, Any]]],
     masscan_inv: Dict[str, Dict[str, List[int]]],
     smrib_inv: Dict[str, Dict[str, List[int]]],
     harv_map: Dict[str, HarvesterDomainResult],
@@ -830,6 +977,86 @@ def build_inventory(
                 set(inventory[ip].get("open_ports", []))
                 | set(masscan_data.get("masscan_ports", []))
             )
+
+    for ip, port_map in nikto_inv.items():
+        entry = inventory.setdefault(
+            ip,
+            {
+                "ip": ip,
+                "entry_type": "host",
+                "open_ports": [],
+                "services": [],
+                "hostnames": [],
+                "os": None,
+                "os_accuracy": None,
+                "related_domains": [],
+            },
+        )
+
+        entry_ports = set(entry.get("open_ports", []))
+        services = entry.setdefault("services", [])
+
+        for port, details in port_map.items():
+            if not isinstance(port, int):
+                continue
+            entry_ports.add(port)
+            ssl_flag = bool(details.get("ssl")) if isinstance(details, Mapping) else False
+            findings: List[Mapping[str, Any]] = []
+            if isinstance(details, Mapping):
+                raw_findings = details.get("findings")
+                if isinstance(raw_findings, list):
+                    findings = [item for item in raw_findings if isinstance(item, Mapping)]
+            if not findings:
+                continue
+
+            service_entry: Optional[Dict[str, Any]] = None
+            for service in services:
+                if isinstance(service, dict) and service.get("port") == port:
+                    service_entry = service
+                    break
+
+            if service_entry is None:
+                service_entry = {
+                    "port": port,
+                    "proto": "tcp",
+                    "state": "open",
+                    "reason": None,
+                    "service": "http",
+                    "version": None,
+                    "product": None,
+                    "extrainfo": None,
+                    "tunnel": "ssl" if ssl_flag else None,
+                    "banner": None,
+                    "ostype": None,
+                    "method": None,
+                    "cpe": [],
+                    "scripts": [],
+                }
+                services.append(service_entry)
+            else:
+                if ssl_flag and not service_entry.get("tunnel"):
+                    service_entry["tunnel"] = "ssl"
+                if not service_entry.get("service"):
+                    service_entry["service"] = "http"
+                if not service_entry.get("proto"):
+                    service_entry["proto"] = "tcp"
+                if not service_entry.get("state"):
+                    service_entry["state"] = "open"
+
+            existing_findings = service_entry.setdefault("nikto_findings", [])
+            seen = {
+                (item.get("description"), item.get("id"))
+                for item in existing_findings
+                if isinstance(item, Mapping)
+            }
+            for finding in findings:
+                key = (finding.get("description"), finding.get("id"))
+                if key in seen:
+                    continue
+                existing_findings.append(finding)
+                seen.add(key)
+
+        entry["open_ports"] = sorted(entry_ports)
 
     # Merge smrib discoveries so that ports identified by that scanner are
     # reflected even if Nmap and Masscan missed them.
@@ -1041,6 +1268,29 @@ def export_csv(bundle: InventoryBundle, outpath: str) -> None:
                             script_bits.append(f"{script_id}={output}")
                     if script_bits:
                         summary_parts.append(f"scripts={'|'.join(script_bits)}")
+                nikto_findings = service.get("nikto_findings") or []
+                if nikto_findings:
+                    finding_bits: List[str] = []
+                    for finding in nikto_findings:
+                        if not isinstance(finding, Mapping):
+                            continue
+                        pieces: List[str] = []
+                        risk = finding.get("risk")
+                        if risk:
+                            pieces.append(str(risk).upper())
+                        description = finding.get("description")
+                        if description:
+                            pieces.append(str(description))
+                        identifier = finding.get("id")
+                        if identifier:
+                            pieces.append(f"id={identifier}")
+                        url = finding.get("url")
+                        if url:
+                            pieces.append(f"url={url}")
+                        if pieces:
+                            finding_bits.append(" ".join(pieces))
+                    if finding_bits:
+                        summary_parts.append(f"nikto={'|'.join(finding_bits)}")
                 service_descriptions.append(" ".join(part for part in summary_parts if part))
 
             services = ";".join(service_descriptions)
@@ -1078,6 +1328,7 @@ def main() -> None:
         )
     )
     parser.add_argument("--nmap-dir", default="out/nmap", help="Directory with Nmap XML files.")
+    parser.add_argument("--nikto-dir", default="out/nikto", help="Directory with Nikto JSON files.")
     parser.add_argument(
         "--masscan-json",
         default="out/masscan/masscan.json",
@@ -1109,10 +1360,12 @@ def main() -> None:
     masscan_results = parse_masscan_json(args.masscan_json)
     smrib_results = parse_smrib_json(args.smrib_json)
     nmap_results = parse_nmap_dir(args.nmap_dir)
+    nikto_results = parse_nikto_dir(args.nikto_dir)
     harvester_results = parse_harvester_dir(args.harv_dir)
 
     bundle = build_inventory(
         nmap_results,
+        nikto_results,
         masscan_results,
         smrib_results,
         harvester_results,

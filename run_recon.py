@@ -56,6 +56,7 @@ SCANNER_DIR = ROOT / "scanner"
 OUT_DIR = ROOT / "out"
 DISCOVERY_DIR = OUT_DIR / "discovery"
 NMAP_DIR = OUT_DIR / "nmap"
+NIKTO_DIR = OUT_DIR / "nikto"
 HARVESTER_DIR = OUT_DIR / "harvester"
 EYEWITNESS_DIR = OUT_DIR / "eyewitness"
 MASSCAN_DIR = OUT_DIR / "masscan"
@@ -92,6 +93,11 @@ TOOL_SUMMARIES = {
         "fingerprinting. During fingerprinting it runs default scripts, probes "
         "service banners, and attempts OS detection to build a rich host profile."
     ),
+    "Nikto": (
+        "Nikto complements service discovery by probing HTTP services for "
+        "common misconfigurations, dangerous files, and known vulnerabilities, "
+        "adding contextual risk data to web-facing hosts."
+    ),
     "theHarvester": (
         "theHarvester enriches the scan by querying OSINT sources for "
         "subdomains, hostnames, and related infrastructure connected to "
@@ -115,6 +121,20 @@ SCANNER_LABELS = {
 _PRIVILEGE_WARNINGS: Set[str] = set()
 _SILENT_MODE = False
 _LOG_FILE: Optional[TextIO] = None
+
+
+def _parse_boolean_option(value: Union[str, bool]) -> bool:
+    # Interpret common truthy/falsey strings for command-line flags that
+    # explicitly accept yes/no style values.
+    if isinstance(value, bool):
+        return value
+
+    cleaned = str(value).strip().lower()
+    if cleaned in {"1", "true", "yes", "on"}:
+        return True
+    if cleaned in {"0", "false", "no", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Expected a true/false value, got: {value}")
 
 
 def _remove_path(path: Path) -> None:
@@ -573,6 +593,22 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Result limit for theHarvester queries (default: 500).",
     )
     parser.add_argument(
+        "--stage2-use-nmap",
+        "-stage2-use-nmap",
+        dest="stage2_use_nmap",
+        type=_parse_boolean_option,
+        metavar="BOOL",
+        help="Enable or disable Nmap during stage 2 fingerprinting (default: true).",
+    )
+    parser.add_argument(
+        "--stage2-use-nikto",
+        "-stage2-use-nikto",
+        dest="stage2_use_nikto",
+        type=_parse_boolean_option,
+        metavar="BOOL",
+        help="Enable or disable Nikto during stage 2 fingerprinting (default: false).",
+    )
+    parser.add_argument(
         "--search-related-data",
         action="store_true",
         help=(
@@ -719,6 +755,15 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             else:
                 extras.extend(entry)
         args.smrib_parameters = extras or None
+
+    if args.stage2_use_nmap is None and args.stage2_use_nikto is None:
+        args.stage2_use_nmap = True
+        args.stage2_use_nikto = False
+    else:
+        if args.stage2_use_nmap is None:
+            args.stage2_use_nmap = True
+        if args.stage2_use_nikto is None:
+            args.stage2_use_nikto = False
 
     return args
 
@@ -1317,6 +1362,57 @@ def run_nmap_fingerprinting(
         ensure_tree_owner(NMAP_DIR)
 
 
+def run_nikto_scans(
+    hosts: Mapping[str, Set[int]],
+    use_sudo: bool,
+) -> None:
+    # Execute Nikto against each discovered host/port pair to surface HTTP
+    # vulnerabilities and misconfigurations.
+    nikto_path = shutil.which("nikto")
+    if not nikto_path:
+        echo("[!] nikto not installed – skipping Nikto fingerprinting stage.", essential=True)
+        return
+
+    _ensure_directory(NIKTO_DIR)
+    actionable_hosts = {target: ports for target, ports in hosts.items() if ports}
+
+    if not actionable_hosts:
+        echo(
+            "[!] No open ports discovered during phase 1 – skipping Nikto fingerprinting stage.",
+            essential=True,
+        )
+        return
+
+    https_ports = {443, 8443, 9443}
+
+    for target, ports in actionable_hosts.items():
+        sanitized = re.sub(r"[^0-9A-Za-z_.-]", "_", target)
+        for port in sorted(ports):
+            if port <= 0:
+                continue
+            prefix = NIKTO_DIR / f"{sanitized}_{port}"
+            output_path = f"{prefix}.json"
+            cmd = [
+                nikto_path,
+                "-host",
+                target,
+                "-port",
+                str(port),
+                "-Format",
+                "json",
+                "-output",
+                output_path,
+            ]
+            if port in https_ports:
+                cmd.append("-ssl")
+            description = (
+                f"Nikto vulnerability scan for {target}:{port} – enumerating web service misconfigurations"
+            )
+            run_command(prefix_command(cmd, use_sudo), description=description)
+
+    ensure_tree_owner(NIKTO_DIR)
+
+
 def export_target_file(
     path: Path,
     targets: Sequence[TargetDefinition],
@@ -1642,6 +1738,8 @@ def aggregate_results() -> None:
         str(ROOT / "tools" / "aggregate.py"),
         "--nmap-dir",
         str(NMAP_DIR),
+        "--nikto-dir",
+        str(NIKTO_DIR),
         "--masscan-json",
         str(MASSCAN_JSON),
         "--smrib-json",
@@ -1654,7 +1752,7 @@ def aggregate_results() -> None:
         str(INVENTORY_CSV),
     ]
     description = (
-        "Aggregating scan outputs – merging Masscan, Nmap, smrib, and theHarvester artefacts"
+        "Aggregating scan outputs – merging Masscan, Nmap, Nikto, smrib, and theHarvester artefacts"
     )
     run_command(cmd, description=description, check=False)
     ensure_tree_owner(REPORT_DIR)
@@ -2081,6 +2179,31 @@ def write_report(
                         output = (script.get("output") or "").strip()
                         if output:
                             extras.append(f"script {script_id}: {output}")
+                    nikto_findings = service.get("nikto_findings") or []
+                    for finding in nikto_findings:
+                        if not isinstance(finding, Mapping):
+                            continue
+                        summary_bits: List[str] = []
+                        risk = finding.get("risk")
+                        if risk:
+                            summary_bits.append(str(risk).upper())
+                        description = finding.get("description")
+                        if description:
+                            summary_bits.append(str(description))
+                        identifier = finding.get("id")
+                        if identifier:
+                            summary_bits.append(f"id={identifier}")
+                        url = finding.get("url")
+                        if url:
+                            summary_bits.append(f"url={url}")
+                        references = finding.get("references")
+                        if isinstance(references, list) and references:
+                            ref_text = ", ".join(str(ref) for ref in references if ref)
+                            if ref_text:
+                                summary_bits.append(f"refs={ref_text}")
+                        extras.append(
+                            f"nikto: {' – '.join(bit for bit in summary_bits if bit)}"
+                        )
                     for detail in extras:
                         lines.append(f"      - {detail}")
 
@@ -2346,10 +2469,22 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     display_discovered_hosts(discovered_hosts)
 
     actionable_hosts = sum(1 for ports in discovered_hosts.values() if ports)
-    stage_two_summary = (
-        "Nmap service and OS detection against "
-        f"{actionable_hosts} host(s) with confirmed open ports."
-    )
+    stage_two_tools: List[str] = []
+    if args.stage2_use_nmap:
+        stage_two_tools.append("Nmap")
+    if args.stage2_use_nikto:
+        stage_two_tools.append("Nikto")
+
+    if stage_two_tools:
+        if len(stage_two_tools) == 1:
+            tool_phrase = stage_two_tools[0]
+        else:
+            tool_phrase = ", ".join(stage_two_tools[:-1]) + f" and {stage_two_tools[-1]}"
+        stage_two_summary = (
+            f"Fingerprinting {actionable_hosts} host(s) with confirmed open ports using {tool_phrase}."
+        )
+    else:
+        stage_two_summary = "Fingerprinting skipped – no stage 2 tools selected."
     echo_stage(2, "Fingerprinting", summary=stage_two_summary)
 
     stage_two_inputs = [
@@ -2358,7 +2493,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     ]
     pretty_print_stage_inputs("Stage 2 – fingerprinting", stage_two_inputs)
 
-    run_nmap_fingerprinting(discovered_hosts, use_sudo)
+    if args.stage2_use_nmap:
+        run_nmap_fingerprinting(discovered_hosts, use_sudo)
+    if args.stage2_use_nikto:
+        run_nikto_scans(discovered_hosts, use_sudo)
 
     target_domains = extract_domains_from_targets(targets)
     permitted_domains = {domain.lower() for domain in target_domains}
