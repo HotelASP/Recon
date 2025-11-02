@@ -31,6 +31,7 @@ import ipaddress
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -499,7 +500,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--smrib-extra",
-        nargs=argparse.REMAINDER,
+        action="append",
         help="Additional arguments to forward to smrib.py after the defaults.",
     )
     parser.add_argument(
@@ -618,6 +619,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             raise SystemExit("--harvester-source requires at least one source name")
 
         args.harvester_sources = ",".join(sources)
+
+    if args.smrib_extra:
+        extras: List[str] = []
+        for entry in args.smrib_extra:
+            extras.extend(shlex.split(entry))
+        args.smrib_extra = extras or None
 
     return args
 
