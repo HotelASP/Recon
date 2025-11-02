@@ -1086,6 +1086,52 @@ def _normalise_ip(value: Optional[str]) -> Optional[str]:
         return None
 
 
+def _validate_osint_host_ip_uniqueness(
+    results: Mapping[str, aggregate.HarvesterDomainResult]
+) -> None:
+    """Ensure theHarvester host/IP tuples are unique before further enrichment."""
+
+    seen_pairs: Set[Tuple[str, str]] = set()
+    ip_to_host: Dict[str, str] = {}
+    duplicate_pairs: List[str] = []
+    conflicting_ips: List[str] = []
+
+    for domain_result in results.values():
+        for finding in domain_result.findings:
+            host_key = _normalise_target(finding.hostname)
+            ip_normalised = _normalise_ip(finding.ip)
+            if not host_key or not ip_normalised:
+                continue
+
+            pair = (host_key, ip_normalised)
+            if pair in seen_pairs:
+                duplicate_pairs.append(f"{finding.hostname} → {ip_normalised}")
+                continue
+
+            seen_pairs.add(pair)
+            existing_host = ip_to_host.setdefault(ip_normalised, host_key)
+            if existing_host != host_key:
+                conflicting_ips.append(
+                    f"{ip_normalised} assigned to {existing_host} and {host_key}"
+                )
+
+    if not duplicate_pairs and not conflicting_ips:
+        return
+
+    problems: List[str] = []
+    if duplicate_pairs:
+        problems.append(
+            "duplicate host/IP tuples detected: " + ", ".join(sorted(duplicate_pairs))
+        )
+    if conflicting_ips:
+        problems.append(
+            "conflicting IP assignments detected: " + ", ".join(sorted(conflicting_ips))
+        )
+
+    details = " | ".join(problems)
+    raise SystemExit(f"[!] OSINT validation failed – {details}")
+
+
 def _registered_domain(candidate: str) -> Optional[str]:
     """Return the registrable domain component of *candidate* if possible."""
 
@@ -1946,6 +1992,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             current_batch = {domain.lower() for domain in pending_domains}
             new_targets: Set[str] = set()
             related_domains: Set[str] = set()
+            discovered_host_ip_tuple = False
 
             def _record_unprocessed(value: Optional[str]) -> None:
                 if not value:
@@ -1977,6 +2024,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     candidate = finding.hostname
                     if not candidate:
                         continue
+
+                    if finding.ip:
+                        discovered_host_ip_tuple = True
 
                     if not _domain_is_permitted(candidate, permitted_domains):
                         _record_unprocessed(candidate)
@@ -2055,9 +2105,20 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 and _domain_is_permitted(domain, permitted_domains)
             }
 
-            pending_domains = {
+            prospective_pending = {
                 domain for domain in new_domain_candidates if domain not in processed_domains
             }
+
+            if (
+                args.search_related_data
+                and iteration == 1
+                and prospective_pending
+                and new_targets
+                and discovered_host_ip_tuple
+            ):
+                _validate_osint_host_ip_uniqueness(harvester_map)
+
+            pending_domains = prospective_pending
             all_domains.update(new_domain_candidates)
 
             if not pending_domains:
