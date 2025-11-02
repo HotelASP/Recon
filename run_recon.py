@@ -3,7 +3,7 @@
 # discovery, service fingerprinting, and OSINT enrichment. The execution flow
 # is intentionally verbose to make the automation steps clear:
 #
-# 1. Discovery scan – execute Masscan (default), ``smrib.py``, or Nmap against
+# 1. Discovery scan – execute ``smrib.py`` (default), Masscan, or Nmap against
 #    the supplied targets to find live hosts and open TCP ports.
 # 2. Detailed fingerprinting – run a comprehensive Nmap scan for the discovered
 #    host/port combinations, capturing service, version, and OS information.
@@ -327,8 +327,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--scanner",
         choices=("masscan", "smrib", "nmap"),
-        default="masscan",
-        help="Scanner to use for the discovery stage (default: masscan).",
+        default="smrib",
+        help="Scanner to use for the discovery stage (default: smrib).",
     )
     parser.add_argument(
         "--top-ports",
@@ -359,7 +359,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--smrib-path",
-        default=os.environ.get("SMRIB_PATH", str(Path.home() / "/home/kali/Desktop/RT/smrib.py")),
+        default=os.environ.get("SMRIB_PATH", str(ROOT / "scanner" / "smrib.py")),
         help="Location of smrib.py when using the smrib discovery option.",
     )
     parser.add_argument(
