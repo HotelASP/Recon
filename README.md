@@ -2,16 +2,16 @@
 
 `Recon` is an automation wrapper that glues together common network-reconnaissance
 steps. The entry point, [`run_recon.py`](./run_recon.py), walks through discovery
-scans, detailed Nmap fingerprinting, optional OSINT collection with theHarvester,
-and screenshot capture with EyeWitness before aggregating everything into a single
-inventory and Markdown report.
+scans, detailed Nmap fingerprinting, optional Nikto web assessments, OSINT
+collection with theHarvester, and screenshot capture with EyeWitness before
+aggregating everything into a single inventory and Markdown report.
 
 ## Overview
 
 - Automates a complete reconnaissance run: discovery, fingerprinting, OSINT, and
   reporting.
-- Normalises results from Masscan, Nmap, smrib, and theHarvester into a single
-  inventory (`inventory.json`/`inventory.csv`).
+- Normalises results from Masscan, Nmap, smrib, Nikto, and theHarvester into a
+  single inventory (`inventory.json`/`inventory.csv`).
 - Captures HTTP(S) screenshots with EyeWitness for rapid visual triage.
 - Generates an opinionated Markdown report that highlights the discovered hosts,
   associated domains, and OSINT artefacts.
@@ -29,8 +29,9 @@ inventory and Markdown report.
 
    The command wipes `out/` (unless `--preserve-output` is set), performs a fast
    Masscan sweep of the top 200 ports, fingerprints the responsive services with
-   Nmap, runs theHarvester for OSINT, and collates everything into
-   `out/report/`. When `--scanner smrib` is selected (the default),
+   Nmap, probes discovered web targets with Nikto, runs theHarvester for OSINT,
+   and collates everything into `out/report/`. When `--scanner smrib` is
+   selected (the default),
    [`run_recon.py`](./run_recon.py) automatically downloads the upstream
    `smrib.py` helper from GitHub into `scanner/`. If that download fails, the
    workflow emits a warning and transparently falls back to Nmap for the
@@ -48,6 +49,8 @@ components you intend to use and make sure they are discoverable in `PATH`:
 - [theHarvester](https://github.com/laramies/theHarvester) for OSINT lookups.
 - [EyeWitness](https://github.com/FortyNorthSecurity/EyeWitness) for HTTP
   screenshots.
+- [Nikto](https://github.com/sullo/nikto) to probe detected web services for
+  misconfigurations and known issues.
 - [smrib.py](https://github.com/HotelASP/Scanner) for the discovery pass
   (retrieved automatically when you rely on the default scanner).
 
@@ -148,6 +151,8 @@ Both switches print the same detailed usage summary.
 | `--masscan-status-interval SECONDS` | Seconds between Masscan status updates (`0` silences progress). | `--masscan-status-interval 5` |
 | `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `./scanner/smrib.py` or `$SMRIB_PATH`). | `--smrib-path ~/tools/smrib.py` |
 | `--smrib-parameters ...` | Extra arguments forwarded verbatim to `smrib.py` (everything after the flag is passed through). | `--smrib-parameters -- --timeout 3 --delay 0.5` |
+| `--stage2-use-nmap BOOL` | Enable or disable Nmap during stage 2 fingerprinting (default: true). | `--stage2-use-nmap false` |
+| `--stage2-use-nikto BOOL` | Enable or disable Nikto during stage 2 fingerprinting (default: true). | `--stage2-use-nikto false` |
 | `--harvester-sources SOURCES` | Comma-separated list of theHarvester backends (default: `all`). | `--harvester-sources crtsh,bing` |
 | `--harvester-source SOURCE` | Repeatable alternative to `--harvester-sources` for per-source control. | `--harvester-source crtsh --harvester-source urlscan` |
 | `--harvester-limit N` | Result limit per source for theHarvester queries (default: `500`). | `--harvester-limit 150` |
@@ -204,17 +209,21 @@ an error. When none is supplied, the script scans the top 100 ports.
    stage is skipped gracefully.
 2. **Nmap fingerprinting** – Executes service, version, and OS detection against
    the discovered host/port pairs. If discovery found nothing, Nmap falls back to
-   the requested port range.
-3. **OSINT (optional)** – Extracts domains from Nmap XML and queries
+   the requested port range. Disable it with `--stage2-use-nmap false`.
+3. **Nikto fingerprinting (optional)** – Scans web services surfaced during
+   discovery and flags common misconfigurations, dangerous files, and known
+   vulnerabilities. Skip it with `--stage2-use-nikto false` or when Nikto is not
+   installed.
+4. **OSINT (optional)** – Extracts domains from Nmap XML and queries
    theHarvester. When theHarvester is unavailable, the script records basic `host`
    and `dig` output instead.
-4. **Aggregation** – Invokes [`tools/aggregate.py`](./tools/aggregate.py) to
-   consolidate Nmap, Masscan, smrib, and theHarvester artefacts into structured
-   JSON/CSV files.
-5. **EyeWitness (optional)** – Builds a list of detected HTTP/HTTPS services and
+5. **Aggregation** – Invokes [`tools/aggregate.py`](./tools/aggregate.py) to
+   consolidate Nmap, Masscan, smrib, Nikto, and theHarvester artefacts into
+   structured JSON/CSV files.
+6. **EyeWitness (optional)** – Builds a list of detected HTTP/HTTPS services and
    captures screenshots in headless mode unless `--skip-eyewitness` is supplied
    or EyeWitness is missing.
-6. **Reporting** – Generates `out/report/report.md` with a structured host and
+7. **Reporting** – Generates `out/report/report.md` with a structured host and
    domain breakdown, summarises the run, and embeds any screenshots.
 
 ## Output Layout
@@ -226,6 +235,7 @@ that context is useful:
 - `out/discovery/` – Raw discovery outputs when Nmap is used for stage one.
 - `out/nmap/` – Nmap XML/normal/grepable files for the fingerprinting stage.
 - `out/harvester/` – theHarvester JSON/HTML exports or fallback DNS lookups.
+- `out/nikto/` – JSON outputs from Nikto web vulnerability scans.
 - `out/eyewitness/` – Screenshot directories produced by EyeWitness.
 - `out/masscan/` – JSON exports created by Masscan (for example `masscan.json`).
 - `out/smrib/` – JSON exports produced by `smrib.py`.
@@ -247,6 +257,8 @@ older data (be aware that aggregation will then include historic results).
 - Tune `--masscan-rate` to match network capacity and avoid packet loss.
 - Provide additional arguments to `smrib.py` via `--smrib-parameters`, for example to
   change logging verbosity or output flags.
+- Toggle stage-two tools individually with `--stage2-use-nmap/--stage2-use-nikto`
+  when you need to narrow focus or a dependency is unavailable.
 - EyeWitness can be time-consuming. Disable it with `--skip-eyewitness` when you
   only need the textual inventory.
 - Review `targets_related_not_processed.txt` after runs that enable
