@@ -34,6 +34,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+from pprint import pformat
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -196,6 +197,22 @@ def echo(message: str, *, essential: bool = False) -> None:
     _log_message(message)
     if not _SILENT_MODE or essential or message.startswith("[!]"):
         print(message)
+
+
+def pretty_print_stage_inputs(
+    stage_label: str, entries: Iterable[Tuple[object, ...]]
+) -> None:
+    """Pretty print the tuples that will be fed into a pipeline stage."""
+
+    items = list(entries)
+    echo(f"[+] {stage_label} input tuples:", essential=True)
+    if not items:
+        echo("    (no inputs)", essential=True)
+        return
+
+    formatted = pformat(items, width=100, compact=False)
+    for line in formatted.splitlines():
+        echo(f"    {line}", essential=True)
 
 
 def echo_stage(stage_number: int, title: str, *, summary: Optional[str] = None) -> None:
@@ -1527,7 +1544,13 @@ def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
 def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
     # Capture screenshots of HTTP services using EyeWitness when the binary is
     # installed and the operator has not opted out of this stage.
-    if args.skip_eyewitness or not urls:
+    if args.skip_eyewitness:
+        return []
+
+    ensure_writable_directory(EYEWITNESS_DIR)
+    pretty_print_stage_inputs("EyeWitness URLs", [(url,) for url in urls])
+
+    if not urls:
         return []
 
     eyewitness_path = shutil.which("eyewitness")
@@ -1935,6 +1958,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     nmap_results: Dict[str, Set[int]] = {}
     use_sudo = False
 
+    stage_one_batches: List[Tuple[List[str], PortSelection]] = []
+    stage_one_printable: List[Tuple[Tuple[str, ...], str]] = []
+
     for key, subset in groups.items():
         if not subset:
             continue
@@ -1942,9 +1968,15 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             selection = port_selection
         else:
             selection = _port_selection_from_ports(list(key))
+        subset_list = list(subset)
+        stage_one_batches.append((subset_list, selection))
+        stage_one_printable.append((tuple(subset_list), selection.description))
         if selection.description not in discovery_descriptions:
             discovery_descriptions.append(selection.description)
 
+    pretty_print_stage_inputs("Stage 1 – discovery", stage_one_printable)
+
+    for subset, selection in stage_one_batches:
         if args.scanner == "masscan":
             results = run_masscan(
                 subset,
@@ -1990,6 +2022,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     )
     echo_stage(2, "Fingerprinting", summary=stage_two_summary)
 
+    stage_two_inputs = [
+        (label, tuple(sorted(ports)) if ports else tuple())
+        for label, ports in sorted(discovered_hosts.items())
+    ]
+    pretty_print_stage_inputs("Stage 2 – fingerprinting", stage_two_inputs)
+
     run_nmap_fingerprinting(discovered_hosts, use_sudo)
 
     target_domains = extract_domains_from_targets(targets)
@@ -2016,6 +2054,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         f"{len(domains)} domain(s) linked to discovered assets."
     )
     echo_stage(3, "OSINT enrichment", summary=stage_three_summary)
+
+    stage_three_inputs = [(domain,) for domain in sorted(domains)]
+    pretty_print_stage_inputs("Stage 3 – OSINT enrichment", stage_three_inputs)
 
     processed_domains: Set[str] = set()
     pending_domains: Set[str] = set()
