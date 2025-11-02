@@ -1459,29 +1459,47 @@ def display_inventory_contents() -> None:
 def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
     # Walk the aggregated inventory and build a deduplicated list of HTTP(S)
     # endpoints that EyeWitness should visit.
-    urls: List[str] = []
+    urls: Set[str] = set()
+    hosts: Dict[str, List[Mapping[str, object]]] = {}
+
     for entry in inventory:
         ip = entry.get("ip")
         if not isinstance(ip, str):
             continue
-        for service in entry.get("services", []) or []:
-            port = service.get("port") if isinstance(service, dict) else None
-            name = (service.get("service") or "").lower() if isinstance(service, dict) else ""
-            if not isinstance(port, int):
+        services = entry.get("services", []) or []
+        hosts.setdefault(ip, []).extend(
+            [service for service in services if isinstance(service, Mapping)]
+        )
+
+    for ip, services in hosts.items():
+        ports = {service.get("port") for service in services if isinstance(service.get("port"), int)}
+        for service in services:
+            port = service.get("port") if isinstance(service.get("port"), int) else None
+            name = (service.get("service") or "").lower()
+            if port is None:
+                continue
+
+            if "http" not in name and port not in {80, 443, 8080, 8000, 8888, 8443, 9443}:
                 continue
 
             scheme = "http"
+            if port == 443 and 80 in ports:
+                # Prefer HTTP on port 80 when both 80 and 443 are available.
+                continue
             if "https" in name or port in {443, 8443, 9443}:
                 scheme = "https"
-            elif "http" not in name and port not in {80, 8080, 8000, 8888}:
-                continue
 
             if port in {80, 443}:
                 url = f"{scheme}://{ip}"
             else:
                 url = f"{scheme}://{ip}:{port}"
-            urls.append(url)
-    return sorted(set(urls))
+            urls.add(url)
+
+        # When 443 is the only standard web port exposed, ensure we still visit it.
+        if ports == {443} and not any(url.startswith("https://") and url.endswith(ip) for url in urls):
+            urls.add(f"https://{ip}")
+
+    return sorted(urls)
 
 
 def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
@@ -1500,6 +1518,7 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
         safe_dir = re.sub(r"[^0-9A-Za-z_.-]", "_", url)
         output_dir = EYEWITNESS_DIR / safe_dir
         output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = str(output_dir.resolve())
         cmd = [
             eyewitness_path,
             "--web",
@@ -1511,7 +1530,7 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
             url,
             "--no-prompt",
             "-d",
-            str(output_dir),
+            output_path,
         ]
         description = (
             f"EyeWitness capture for {url} – headless browser screenshot of the HTTP(S) service"
