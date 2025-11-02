@@ -10,3 +10,7 @@ __pycache__/
 api-keys.yaml
 /etc/theHarvester/api-keys.yaml
 out/
+
+# target files
+targets_new.txt
+targets_related_not_processed.txt
