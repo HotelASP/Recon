@@ -13,6 +13,8 @@ api-keys.yaml
 microsoft.gpg
 out/
 
+scanner/
+
 # scripts and target files
 git-update-local-fix.sh
 git-update-local.sh
