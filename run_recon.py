@@ -1070,6 +1070,22 @@ def _normalise_target(value: str) -> str:
     return value.strip().lower()
 
 
+def _normalise_ip(value: Optional[str]) -> Optional[str]:
+    """Return a canonical representation of *value* when it is an IP address."""
+
+    if not value:
+        return None
+
+    candidate = value.strip()
+    if not candidate:
+        return None
+
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return None
+
+
 def _registered_domain(candidate: str) -> Optional[str]:
     """Return the registrable domain component of *candidate* if possible."""
 
@@ -1776,6 +1792,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         if definition.ports
     }
 
+    ip_host_assignments: Dict[str, str] = {}
+
+    def _note_known_ip(label: str) -> None:
+        normalised_ip = _normalise_ip(label)
+        if normalised_ip and normalised_ip not in ip_host_assignments:
+            ip_host_assignments[normalised_ip] = _normalise_target(label)
+
+    for definition in target_definitions:
+        _note_known_ip(definition.value)
+
     echo(f"[+] Loaded {len(targets)} target(s)", essential=True)
     echo("    Target list (in scanning order):", essential=True)
     for index, target in enumerate(formatted_targets, start=1):
@@ -1858,6 +1884,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         port_selection.forced_ports,
         per_target_ports,
     )
+
+    for label in discovered_hosts:
+        _note_known_ip(label)
 
     display_discovered_hosts(discovered_hosts)
 
@@ -1958,13 +1987,23 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     all_domains.add(candidate)
 
                     normalised_candidate = _normalise_target(candidate)
+                    ip_conflict = False
+                    ip_normalised = _normalise_ip(finding.ip)
+                    if ip_normalised:
+                        existing_host = ip_host_assignments.get(ip_normalised)
+                        if existing_host and existing_host != normalised_candidate:
+                            _record_unprocessed(candidate)
+                            _record_unprocessed(finding.ip)
+                            ip_conflict = True
+                        else:
+                            ip_host_assignments[ip_normalised] = normalised_candidate
+                            scanned_targets.add(ip_normalised)
+
+                    if ip_conflict:
+                        continue
+
                     if normalised_candidate not in scanned_targets:
                         new_targets.add(candidate)
-
-                    if finding.ip:
-                        normalised_ip = _normalise_target(finding.ip)
-                        if normalised_ip not in scanned_targets:
-                            _record_unprocessed(finding.ip)
 
                     candidate_domain = _registered_domain(candidate)
                     if candidate_domain:
@@ -1980,9 +2019,15 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                         _record_unprocessed(host_value)
 
                 for ip_value in result.sections.get("ips", []):
-                    normalised_ip = _normalise_target(ip_value)
-                    if normalised_ip not in scanned_targets:
+                    ip_normalised = _normalise_ip(ip_value)
+                    if not ip_normalised:
+                        continue
+                    existing_host = ip_host_assignments.get(ip_normalised)
+                    if existing_host and existing_host != normalised_domain:
                         _record_unprocessed(ip_value)
+                        continue
+                    ip_host_assignments[ip_normalised] = normalised_domain
+                    scanned_targets.add(ip_normalised)
 
             if new_targets:
                 resolved_targets = _resolve_related_targets(sorted(new_targets))
@@ -1993,6 +2038,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 discovery_subset = run_nmap_discovery(resolved_targets, port_selection, use_sudo)
                 for host, ports in discovery_subset.items():
                     discovered_hosts.setdefault(host, set()).update(ports)
+                    _note_known_ip(host)
                 display_discovered_hosts(discovery_subset)
                 run_nmap_fingerprinting(discovery_subset, use_sudo)
                 for candidate in resolved_targets:
