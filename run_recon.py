@@ -231,11 +231,9 @@ def echo_stage(stage_number: int, title: str, *, summary: Optional[str] = None) 
     border = "=" * len(summary)
     echo("", essential=True)
     echo(border, essential=True)
-    echo(border, essential=True)
     echo(header, essential=True)
     if summary:
         echo(f"    {summary}", essential=True)
-    echo(border, essential=True)
     echo(border, essential=True)
 
 
