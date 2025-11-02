@@ -37,14 +37,14 @@ inventory and Markdown report.
 The Python script shells out to several third-party tools. Install whichever
 components you intend to use and make sure they are discoverable in `PATH`:
 
-- [`masscan`](https://github.com/robertdavidgraham/masscan) for fast discovery
+- [`masscan`] for fast discovery
   scans.
-- [`nmap`](https://nmap.org/) for both discovery (if selected) and the required
+- [`nmap`] for both discovery (if selected) and the required
   fingerprinting stage.
-- [`theHarvester`](https://github.com/laramies/theHarvester) for OSINT lookups.
-- [`EyeWitness`](https://github.com/ChrisTruncer/EyeWitness) for HTTP
+- [`theHarvester`] for OSINT lookups.
+- [`EyeWitness`] for HTTP
   screenshots.
-- [`smrib.py`](https://github.com/dievus/smrib) if you prefer that script for
+- [`smrib.py`] if you prefer that script for
   the discovery pass.
 
 Python 3.8+ is recommended. The included [`tools/aggregate.py`](./tools/aggregate.py)
