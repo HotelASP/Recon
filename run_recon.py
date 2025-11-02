@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import io
 import ipaddress
 import json
 import os
@@ -34,17 +35,21 @@ import socket
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pprint import pformat
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, TextIO, Tuple, Union
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from tools import aggregate
 from tools.ownership import ensure_path_owner, ensure_tree_owner
 
 
 ROOT = Path(__file__).resolve().parent
+SCANNER_DIR = ROOT / "scanner"
 OUT_DIR = ROOT / "out"
 DISCOVERY_DIR = OUT_DIR / "discovery"
 NMAP_DIR = OUT_DIR / "nmap"
@@ -65,6 +70,12 @@ TARGETS_NEW_FILE = ROOT / "targets_new.txt"
 # File used to record any domains or hosts that are deliberately ignored during
 # the OSINT enrichment stage so the operator can review them manually later.
 TARGETS_NOT_PROCESSED_FILE = ROOT / "targets_related_not_processed.txt"
+
+SCANNER_REPO_URLS = (
+    "https://github.com/HotelASP/Scanner/archive/refs/heads/main.zip",
+    "https://github.com/HotelASP/Scanner/archive/refs/heads/master.zip",
+)
+DEFAULT_SMRIB_PATH = str(SCANNER_DIR / "smrib.py")
 
 
 TOOL_SUMMARIES = {
@@ -289,6 +300,99 @@ def ensure_writable_directory(path: Path) -> None:
         ) from exc
 
 
+def _download_scanner_archive(url: str) -> bytes:
+    """Retrieve the zipped Scanner repository from GitHub."""
+
+    request = Request(url, headers={"User-Agent": "ReconScannerFetcher/1.0"})
+    with urlopen(request) as response:
+        return response.read()
+
+
+def _extract_scanner_archive(archive_bytes: bytes, destination: Path) -> None:
+    """Extract the downloaded Scanner repository into ``destination``."""
+
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        root_prefix: Optional[str] = None
+        for member in archive.infolist():
+            name = Path(member.filename)
+            if not name.parts:
+                continue
+
+            if root_prefix is None:
+                root_prefix = name.parts[0]
+
+            if name.parts[0] != root_prefix:
+                continue
+
+            relative_parts = name.parts[1:]
+            if not relative_parts:
+                if member.is_dir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                continue
+
+            target_path = destination.joinpath(*relative_parts)
+            if member.is_dir():
+                target_path.mkdir(parents=True, exist_ok=True)
+                continue
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, target_path.open("wb") as handle:
+                shutil.copyfileobj(source, handle)
+
+
+def ensure_scanner_repository() -> None:
+    """Ensure the ``scanner`` directory contains the upstream Scanner project."""
+
+    scanner_dir = SCANNER_DIR
+    scanner_dir.mkdir(parents=True, exist_ok=True)
+
+    smrib_path = scanner_dir / "smrib.py"
+    data_dir = scanner_dir / "data"
+    if smrib_path.is_file() and data_dir.is_dir():
+        return
+
+    echo(
+        "[!] Local scanner assets missing – downloading HotelASP/Scanner from GitHub.",
+        essential=True,
+    )
+
+    _remove_path(scanner_dir)
+    scanner_dir.mkdir(parents=True, exist_ok=True)
+
+    last_error: Optional[Exception] = None
+    for url in SCANNER_REPO_URLS:
+        try:
+            echo(f"[+] Fetching scanner repository archive from {url}", essential=True)
+            archive_bytes = _download_scanner_archive(url)
+            _extract_scanner_archive(archive_bytes, scanner_dir)
+            break
+        except (HTTPError, URLError, zipfile.BadZipFile, OSError) as exc:
+            last_error = exc
+            echo(
+                f"[!] Failed to download Scanner repository from {url}: {exc}",
+                essential=True,
+            )
+    else:
+        raise SystemExit(
+            "Unable to download the Scanner repository from GitHub. Check your network "
+            "connectivity and retry."
+        ) from last_error
+
+    if not smrib_path.is_file() or not data_dir.is_dir():
+        raise SystemExit(
+            "Downloaded Scanner repository is incomplete – smrib.py or the data directory is missing."
+        )
+
+    try:
+        current_mode = smrib_path.stat().st_mode
+        smrib_path.chmod(current_mode | 0o111)
+    except OSError:
+        pass
+
+    ensure_tree_owner(scanner_dir)
+    echo("[+] Scanner repository ready", essential=True)
+
+
 @dataclass
 class PortSelection:
     # Represent the discovery port scanning strategy so the same configuration
@@ -359,7 +463,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--smrib-path",
-        default=os.environ.get("SMRIB_PATH", str(ROOT / "scanner" / "smrib.py")),
+        default=os.environ.get("SMRIB_PATH", DEFAULT_SMRIB_PATH),
         help="Location of smrib.py when using the smrib discovery option.",
     )
     parser.add_argument(
@@ -1887,6 +1991,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     global _SILENT_MODE
     _SILENT_MODE = args.silent
+
+    ensure_scanner_repository()
 
     if not args.preserve_output:
         reset_output_tree()
