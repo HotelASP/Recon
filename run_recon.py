@@ -89,6 +89,13 @@ TOOL_SUMMARIES = {
 }
 
 
+SCANNER_LABELS = {
+    "masscan": "Masscan",
+    "smrib": "smrib.py",
+    "nmap": "Nmap",
+}
+
+
 _PRIVILEGE_WARNINGS: Set[str] = set()
 _SILENT_MODE = False
 _LOG_FILE: Optional[TextIO] = None
@@ -189,6 +196,19 @@ def echo(message: str, *, essential: bool = False) -> None:
     _log_message(message)
     if not _SILENT_MODE or essential or message.startswith("[!]"):
         print(message)
+
+
+def echo_stage(stage_number: int, title: str, *, summary: Optional[str] = None) -> None:
+    """Emit a prominent stage heading so operators can follow progress."""
+
+    header = f"[+] Stage {stage_number}: {title}"
+    border = "=" * len(header)
+    echo("", essential=True)
+    echo(border, essential=True)
+    echo(header, essential=True)
+    if summary:
+        echo(f"    {summary}", essential=True)
+    echo(border, essential=True)
 
 
 def warn_privileges(tool: str, use_sudo: bool) -> None:
@@ -1899,6 +1919,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         ensure_writable_directory(path)
     echo("[+] Output directories verified", essential=True)
 
+    scanner_label = SCANNER_LABELS.get(args.scanner, args.scanner)
+    stage_one_summary = (
+        f"Discovery scanning with {scanner_label} to identify responsive hosts and open ports."
+    )
+    echo_stage(1, "Discovery", summary=stage_one_summary)
+
     groups = _group_targets_by_ports(target_definitions)
 
     discovery_descriptions: List[str] = []
@@ -1955,6 +1981,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     display_discovered_hosts(discovered_hosts)
 
+    actionable_hosts = sum(1 for ports in discovered_hosts.values() if ports)
+    stage_two_summary = (
+        "Nmap service and OS detection against "
+        f"{actionable_hosts} host(s) with confirmed open ports."
+    )
+    echo_stage(2, "Fingerprinting", summary=stage_two_summary)
+
     run_nmap_fingerprinting(discovered_hosts, use_sudo)
 
     target_domains = extract_domains_from_targets(targets)
@@ -1975,6 +2008,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     else:
         domains = set()
     all_domains: Set[str] = set(domains)
+
+    stage_three_summary = (
+        "Gathering OSINT with theHarvester for "
+        f"{len(domains)} domain(s) linked to discovered assets."
+    )
+    echo_stage(3, "OSINT enrichment", summary=stage_three_summary)
 
     processed_domains: Set[str] = set()
     pending_domains: Set[str] = set()
