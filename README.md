@@ -70,6 +70,11 @@ the port list empty to fall back to the global CLI options (`--ports`,
 python3 run_recon.py [options]
 ```
 
+The repository bundles a self-contained copy of `smrib.py` under
+[`scanner/smrib.py`](./scanner/smrib.py). The discovery stage now uses this
+script by default, so no external download is required unless you want to supply
+a customised scanner via `--smrib-path`.
+
 ### Example Workflows
 
 - **Full TCP sweep with Nmap only** – useful when Masscan is unavailable or
@@ -100,13 +105,13 @@ python3 run_recon.py [options]
 
 | Option | Description |
 | --- | --- |
-| `--scanner {masscan,smrib,nmap}` | Selects the discovery stage implementation (default: `masscan`). |
+| `--scanner {masscan,smrib,nmap}` | Selects the discovery stage implementation (default: `smrib`). |
 | `--top-ports N` | Scans only the top `N` ports for discovery (mutually exclusive with `--port-range` and `--ports`). |
 | `--port-range RANGE` | Explicit port range or comma-separated list, e.g. `1-1024,3389`. Overrides `--top-ports` and is mutually exclusive with `--ports`. |
 | `--ports LIST` | Comma-separated list of TCP ports to scan and fingerprint (overrides discovery results and disables other port selectors). |
 | `--masscan-rate RATE` | Packet rate for Masscan when it is the chosen scanner (default: `1000`). |
 | `--masscan-status-interval SECONDS` | Seconds between Masscan status updates (use `0` to silence the progress lines). |
-| `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `$SMRIB_PATH` env var or `~/Desktop/RT/smrib.py`). |
+| `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `$SMRIB_PATH` env var or `./scanner/smrib.py`). |
 | `--smrib-extra ...` | Additional arguments appended to the `smrib.py` command. Everything after this flag is forwarded. |
 | `--harvester-sources SOURCES` | Comma-separated data sources for theHarvester (default: `all`). |
 | `--harvester-source SOURCE` | Repeatable flag to list individual theHarvester sources (overrides `--harvester-sources`). |
@@ -123,7 +128,7 @@ an error. When none is supplied, the script scans the top 100 ports.
 
 ## Workflow
 
-1. **Discovery scan** – Runs Masscan, `smrib.py`, or Nmap (depending on
+1. **Discovery scan** – Runs `smrib.py`, Masscan, or Nmap (depending on
    `--scanner`) to enumerate open ports. If the selected tool is missing, the
    stage is skipped gracefully.
 2. **Nmap fingerprinting** – Executes service, version, and OS detection against
