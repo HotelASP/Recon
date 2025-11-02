@@ -1394,7 +1394,6 @@ def run_nmap_fingerprinting(
         cmd = [
             "nmap",
             "-sS",
-            "-p-",
             "-T4",
             "-sV",
             "-O",
@@ -1402,11 +1401,20 @@ def run_nmap_fingerprinting(
             "-oA",
             str(outbase),
         ]
-        port_scope = f"{len(ports)} discovered port(s)"
+        selected_ports = sorted(port for port in ports if port > 0)
+        if selected_ports:
+            port_arg = ",".join(str(port) for port in selected_ports)
+            cmd.extend(["-p", port_arg])
+            port_scope = (
+                f"{len(selected_ports)} discovered port(s): "
+                f"{', '.join(str(port) for port in selected_ports)}"
+            )
+        else:
+            port_scope = "no discovered ports"
         cmd.append(target)
         description = (
-            f"Nmap fingerprinting for {target} – SYN scan across all ports with default, banner, "
-            f"and vuln scripts plus version and OS detection (based on {port_scope})"
+            f"Nmap fingerprinting for {target} – SYN scan with default, banner, and vuln scripts "
+            f"plus version and OS detection (based on {port_scope})"
         )
         run_command(prefix_command(cmd, use_sudo), description=description)
         ensure_tree_owner(NMAP_DIR)
