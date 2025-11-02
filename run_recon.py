@@ -1970,6 +1970,16 @@ def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
     urls: Set[str] = set()
     hosts: Dict[str, List[Mapping[str, object]]] = {}
 
+    def _format_host(value: str) -> str:
+        # Enclose IPv6 addresses in brackets so generated URLs remain valid.
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            return value
+        if address.version == 6:
+            return f"[{value}]"
+        return value
+
     for entry in inventory:
         ip = entry.get("ip")
         if not isinstance(ip, str):
@@ -1980,7 +1990,12 @@ def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
         )
 
     for ip, services in hosts.items():
-        ports = {service.get("port") for service in services if isinstance(service.get("port"), int)}
+        formatted_host = _format_host(ip)
+        ports = {
+            service.get("port")
+            for service in services
+            if isinstance(service.get("port"), int)
+        }
         for service in services:
             port = service.get("port") if isinstance(service.get("port"), int) else None
             name = (service.get("service") or "").lower()
@@ -1998,14 +2013,15 @@ def collect_http_urls(inventory: List[Mapping[str, object]]) -> List[str]:
                 scheme = "https"
 
             if port in {80, 443}:
-                url = f"{scheme}://{ip}"
+                url = f"{scheme}://{formatted_host}"
             else:
-                url = f"{scheme}://{ip}:{port}"
+                url = f"{scheme}://{formatted_host}:{port}"
             urls.add(url)
 
         # When 443 is the only standard web port exposed, ensure we still visit it.
-        if ports == {443} and not any(url.startswith("https://") and url.endswith(ip) for url in urls):
-            urls.add(f"https://{ip}")
+        https_root = f"https://{formatted_host}"
+        if ports == {443} and https_root not in urls:
+            urls.add(https_root)
 
     return sorted(urls)
 
