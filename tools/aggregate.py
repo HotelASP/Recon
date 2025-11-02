@@ -651,6 +651,7 @@ def parse_harvester_dir(harv_dir: str) -> Dict[str, HarvesterDomainResult]:
     """Read theHarvester outputs and associate domains with discovered hosts."""
 
     mapping: Dict[str, HarvesterDomainResult] = {}
+    global_ip_registry: Dict[str, str] = {}
 
     if not os.path.isdir(harv_dir):
         return mapping
@@ -718,12 +719,33 @@ def parse_harvester_dir(harv_dir: str) -> Dict[str, HarvesterDomainResult]:
         _parse_text_sections(content, domain_result)
 
         deduped: Dict[str, HarvesterFinding] = {}
+        local_ip_registry: Dict[str, str] = {}
         for finding in domain_result.findings:
-            existing = deduped.get(finding.hostname)
+            host_key = finding.hostname
+            ip_normalised: Optional[str] = None
+            if finding.ip:
+                try:
+                    ip_normalised = str(ipaddress.ip_address(finding.ip.strip()))
+                except ValueError:
+                    ip_normalised = None
+
+            if ip_normalised:
+                existing_global = global_ip_registry.get(ip_normalised)
+                if existing_global and existing_global != host_key:
+                    continue
+                existing_local = local_ip_registry.get(ip_normalised)
+                if existing_local and existing_local != host_key:
+                    continue
+
+            existing = deduped.get(host_key)
             if existing is None or (existing.ip is None and finding.ip):
-                deduped[finding.hostname] = finding
+                deduped[host_key] = finding
+                if ip_normalised:
+                    local_ip_registry[ip_normalised] = host_key
 
         domain_result.findings = list(deduped.values())
+        for ip_normalised, host_key in local_ip_registry.items():
+            global_ip_registry[ip_normalised] = host_key
         domain_result.sort_contents()
 
         has_sections = any(values for values in domain_result.sections.values())
