@@ -1027,18 +1027,8 @@ def run_command(cmd: List[str], *, description: str, check: bool = False) -> boo
     return True
 
 
-def run_masscan(
-    targets: Sequence[str],
-    port_selection: PortSelection,
-    rate: int,
-    status_interval: Optional[float],
-    use_sudo: bool,
-) -> Mapping[str, Set[int]]:
-    # Perform the high-speed discovery scan with Masscan, resolving hostnames
-    # to IPv4 addresses when necessary.
-    if not shutil.which("masscan"):
-        echo("[!] masscan is not installed or not in PATH – skipping discovery stage.", essential=True)
-        return {}
+def resolve_masscan_targets(targets: Sequence[str]) -> List[str]:
+    """Resolve Masscan targets to IPv4 addresses while preserving raw inputs."""
 
     resolved_targets: List[str] = []
     for target in targets:
@@ -1071,10 +1061,31 @@ def run_masscan(
         }
 
         if not ipv4_addresses:
-            echo(f"[!] No IPv4 addresses resolved for '{target}' – skipping Masscan entry.", essential=True)
+            echo(
+                f"[!] No IPv4 addresses resolved for '{target}' – skipping Masscan entry.",
+                essential=True,
+            )
             continue
 
         resolved_targets.extend(sorted(ipv4_addresses))
+
+    return resolved_targets
+
+
+def run_masscan(
+    targets: Sequence[str],
+    port_selection: PortSelection,
+    rate: int,
+    status_interval: Optional[float],
+    use_sudo: bool,
+) -> Mapping[str, Set[int]]:
+    # Perform the high-speed discovery scan with Masscan, resolving hostnames
+    # to IPv4 addresses when necessary.
+    if not shutil.which("masscan"):
+        echo("[!] masscan is not installed or not in PATH – skipping discovery stage.", essential=True)
+        return {}
+
+    resolved_targets = resolve_masscan_targets(targets)
 
     if not resolved_targets:
         echo("[!] No valid targets available for Masscan – skipping discovery stage.", essential=True)

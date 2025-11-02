@@ -54,6 +54,19 @@ components you intend to use and make sure they are discoverable in `PATH`:
 Python 3.8+ is recommended. The included [`tools/aggregate.py`](./tools/aggregate.py)
 module performs the final data merge and is invoked automatically.
 
+## Testing
+
+The repository does not ship with an automated test suite, but you can quickly
+validate that the command-line utilities are syntactically sound by compiling
+them:
+
+```bash
+python3 -m compileall run_recon.py tools
+```
+
+Running the command before a scan (or after making local modifications) helps
+catch syntax errors and missing imports early.
+
 ## Targets
 
 Populate [`targets.txt`](./targets.txt) with one host, IP address, or network per
