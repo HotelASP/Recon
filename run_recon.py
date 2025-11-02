@@ -1343,20 +1343,20 @@ def run_nmap_fingerprinting(
         outbase = NMAP_DIR / sanitized
         cmd = [
             "nmap",
-            "--script=default,banner",
+            "-sS",
+            "-p-",
+            "-T4",
             "-sV",
             "-O",
-            "-T4",
+            "--script=default,banner,vuln",
             "-oA",
             str(outbase),
         ]
-        port_list = ",".join(str(port) for port in sorted(ports))
-        cmd.extend(["-p", port_list])
         port_scope = f"{len(ports)} discovered port(s)"
         cmd.append(target)
         description = (
-            f"Nmap fingerprinting for {target} – default scripts, version, and OS detection "
-            f"against {port_scope}"
+            f"Nmap fingerprinting for {target} – SYN scan across all ports with default, banner, "
+            f"and vuln scripts plus version and OS detection (based on {port_scope})"
         )
         run_command(prefix_command(cmd, use_sudo), description=description)
         ensure_tree_owner(NMAP_DIR)
