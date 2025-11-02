@@ -692,29 +692,54 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
         raise SystemExit("Specify either --ports or --top-ports, not both.")
 
     if args.ports:
-        ports: List[int] = []
+        tokens: List[str] = []
+        forced: List[int] = []
         for entry in args.ports.split(","):
             part = entry.strip()
             if not part:
                 continue
+
+            range_match = re.fullmatch(r"(\d+)\s*-\s*(\d+)", part)
+            if range_match:
+                start = int(range_match.group(1))
+                end = int(range_match.group(2))
+                if not 1 <= start <= 65535 or not 1 <= end <= 65535:
+                    raise SystemExit("--ports values must be between 1 and 65535")
+                if end < start:
+                    raise SystemExit("--ports ranges must have an end greater than or equal to the start")
+                tokens.append(f"{start}-{end}" if start != end else str(start))
+                forced.extend(range(start, end + 1))
+                continue
+
             if not part.isdigit():
-                raise SystemExit("--ports must contain only integers separated by commas")
+                raise SystemExit(
+                    "--ports must contain only integers, ranges, and commas"
+                )
+
             value = int(part)
             if not 1 <= value <= 65535:
                 raise SystemExit("--ports values must be between 1 and 65535")
-            ports.append(value)
+            tokens.append(str(value))
+            forced.append(value)
 
-        if not ports:
+        if not tokens:
             raise SystemExit("--ports requires at least one port number")
 
-        unique_ports = sorted(dict.fromkeys(ports))
-        port_list = ",".join(str(port) for port in unique_ports)
+        normalised_tokens: List[str] = []
+        seen_tokens: Set[str] = set()
+        for token in tokens:
+            if token not in seen_tokens:
+                normalised_tokens.append(token)
+                seen_tokens.add(token)
+
+        port_spec = ",".join(normalised_tokens)
+        unique_ports = sorted(dict.fromkeys(forced))
 
         return PortSelection(
-            description=f"ports {port_list}",
-            masscan_args=["-p", port_list],
-            nmap_args=["-p", port_list],
-            smrib_args=["--ports", port_list],
+            description=f"ports {port_spec}",
+            masscan_args=["-p", port_spec],
+            nmap_args=["-p", port_spec],
+            smrib_args=["--ports", port_spec],
             forced_ports=unique_ports,
         )
 
