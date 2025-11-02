@@ -737,7 +737,6 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
 
     if args.ports:
         tokens: List[str] = []
-        forced: List[int] = []
         for entry in args.ports.split(","):
             part = entry.strip()
             if not part:
@@ -752,7 +751,6 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
                 if end < start:
                     raise SystemExit("--ports ranges must have an end greater than or equal to the start")
                 tokens.append(f"{start}-{end}" if start != end else str(start))
-                forced.extend(range(start, end + 1))
                 continue
 
             if not part.isdigit():
@@ -764,7 +762,6 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
             if not 1 <= value <= 65535:
                 raise SystemExit("--ports values must be between 1 and 65535")
             tokens.append(str(value))
-            forced.append(value)
 
         if not tokens:
             raise SystemExit("--ports requires at least one port number")
@@ -777,14 +774,11 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
                 seen_tokens.add(token)
 
         port_spec = ",".join(normalised_tokens)
-        unique_ports = sorted(dict.fromkeys(forced))
-
         return PortSelection(
             description=f"ports {port_spec}",
             masscan_args=["-p", port_spec],
             nmap_args=["-p", port_spec],
             smrib_args=["--ports", port_spec],
-            forced_ports=unique_ports,
         )
 
     if not args.port_range and not explicit_top_ports:
