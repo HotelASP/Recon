@@ -501,7 +501,6 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--smrib-parameters",
         action="append",
-        nargs="+",
         metavar="ARG",
         help=(
             "Additional arguments to forward to smrib.py after the defaults. "
@@ -597,7 +596,49 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Only display essential status messages.",
     )
 
-    args = parser.parse_args(argv)
+    if argv is None:
+        argv_list = sys.argv[1:]
+    else:
+        argv_list = list(argv)
+
+    option_strings = set(parser._option_string_actions)
+    normalised: List[str] = []
+    index = 0
+
+    while index < len(argv_list):
+        token = argv_list[index]
+
+        if token == "--smrib-parameters":
+            index += 1
+            collected: List[str] = []
+
+            while index < len(argv_list):
+                candidate = argv_list[index]
+
+                if candidate == "--":
+                    index += 1
+                    collected.extend(argv_list[index:])
+                    index = len(argv_list)
+                    break
+
+                if candidate.startswith("-"):
+                    option_key = candidate.split("=", 1)[0]
+                    if option_key in option_strings:
+                        break
+
+                collected.append(candidate)
+                index += 1
+
+            if not collected:
+                raise SystemExit("--smrib-parameters requires at least one argument")
+
+            normalised.extend(f"{token}={value}" for value in collected)
+            continue
+
+        normalised.append(token)
+        index += 1
+
+    args = parser.parse_args(normalised)
 
     raw_targets: List[str] = []
     if args.targets:
