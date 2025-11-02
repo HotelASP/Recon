@@ -18,7 +18,7 @@
 # python3 run_recon.py --targets-file targets.txt  --top-ports 200 --targets-new-export --search-related-data 
 # python3 run_recon.py --scanner nmap --targets hotelasp.com --top-ports 200 --targets-new-export --harvester-sources 'crtsh, bing' --search-related-data
 # python3 run_recon.py --scanner masscan --targets-file targets.txt --top-ports 200 --targets-new-export --harvester-sources 'crtsh, bing' --search-related-data
-# python3 run_recon.py --scanner smrib --smrib-extra '--fast --shuffle' --targets-file targets.txt --port-range 1-1024 --targets-new-export --search-related-data
+# python3 run_recon.py --scanner smrib --smrib-parameters '--fast --shuffle' --targets-file targets.txt --port-range 1-1024 --targets-new-export --search-related-data
 # python3 run_recon.py --scanner nmap --targets-file targets.txt --port-range 1-1024 --targets-new-export --search-related-data
 #
 
@@ -499,7 +499,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Location of smrib.py when using the smrib discovery option.",
     )
     parser.add_argument(
-        "--smrib-extra",
+        "--smrib-parameters",
         action="append",
         nargs="+",
         metavar="ARG",
@@ -625,14 +625,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
         args.harvester_sources = ",".join(sources)
 
-    if args.smrib_extra:
+    if args.smrib_parameters:
         extras: List[str] = []
-        for entry in args.smrib_extra:
+        for entry in args.smrib_parameters:
             if isinstance(entry, str):
                 extras.extend(shlex.split(entry))
             else:
                 extras.extend(entry)
-        args.smrib_extra = extras or None
+        args.smrib_parameters = extras or None
 
     return args
 
@@ -1016,7 +1016,7 @@ def run_smrib(
     targets: Sequence[str],
     port_selection: PortSelection,
     smrib_path: str,
-    extra_args: Optional[Sequence[str]],
+    parameters: Optional[Sequence[str]],
     use_sudo: bool,
 ) -> Mapping[str, Set[int]]:
     # Provide an alternative discovery method that shells out to smrib.py with
@@ -1032,8 +1032,8 @@ def run_smrib(
     cmd.extend(["--json", str(SMRIB_JSON)])
     cmd.extend(["--targets", ",".join(targets)])
     cmd.append("--show-only-open")
-    if extra_args:
-        cmd.extend(extra_args)
+    if parameters:
+        cmd.extend(parameters)
 
     description = (
         "smrib discovery – Python-based scanner performing targeted TCP probes "
@@ -2195,7 +2195,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             )
             _merge_result_maps(masscan_results, results)
         elif args.scanner == "smrib":
-            results = run_smrib(subset, selection, args.smrib_path, args.smrib_extra, use_sudo)
+            results = run_smrib(
+                subset,
+                selection,
+                args.smrib_path,
+                args.smrib_parameters,
+                use_sudo,
+            )
             _merge_result_maps(smrib_results, results)
         else:
             results = run_nmap_discovery(subset, selection, use_sudo)

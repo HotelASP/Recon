@@ -131,7 +131,7 @@ Both switches print the same detailed usage summary.
 | `--masscan-rate RATE` | Packet rate for Masscan scans (default: `1000`). | `--masscan-rate 5000` |
 | `--masscan-status-interval SECONDS` | Seconds between Masscan status updates (`0` silences progress). | `--masscan-status-interval 5` |
 | `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `./scanner/smrib.py` or `$SMRIB_PATH`). | `--smrib-path ~/tools/smrib.py` |
-| `--smrib-extra ...` | Extra arguments forwarded verbatim to `smrib.py` (everything after the flag is passed through). | `--smrib-extra -- --timeout 3 --delay 0.5` |
+| `--smrib-parameters ...` | Extra arguments forwarded verbatim to `smrib.py` (everything after the flag is passed through). | `--smrib-parameters -- --timeout 3 --delay 0.5` |
 | `--harvester-sources SOURCES` | Comma-separated list of theHarvester backends (default: `all`). | `--harvester-sources crtsh,bing` |
 | `--harvester-source SOURCE` | Repeatable alternative to `--harvester-sources` for per-source control. | `--harvester-source crtsh --harvester-source urlscan` |
 | `--harvester-limit N` | Result limit per source for theHarvester queries (default: `500`). | `--harvester-limit 150` |
@@ -157,7 +157,7 @@ Both switches print the same detailed usage summary.
 - Run the default smrib workflow with a custom executable and extra parameters:
 
   ```bash
-  python3 run_recon.py --scanner smrib --smrib-path ~/tools/smrib.py --smrib-extra -- --timeout 5 --delay 0.25 --targets example.com
+  python3 run_recon.py --scanner smrib --smrib-path ~/tools/smrib.py --smrib-parameters -- --timeout 5 --delay 0.25 --targets example.com
   ```
 
 - Focus theHarvester on explicit sources with a tighter result limit while looping through related data:
@@ -229,7 +229,7 @@ older data (be aware that aggregation will then include historic results).
 - Use `--sudo` when the selected scanner requires elevated privileges for raw
   sockets.
 - Tune `--masscan-rate` to match network capacity and avoid packet loss.
-- Provide additional arguments to `smrib.py` via `--smrib-extra`, for example to
+- Provide additional arguments to `smrib.py` via `--smrib-parameters`, for example to
   change logging verbosity or output flags.
 - EyeWitness can be time-consuming. Disable it with `--skip-eyewitness` when you
   only need the textual inventory.
