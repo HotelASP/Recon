@@ -60,7 +60,9 @@ REPORT_PATH = REPORT_DIR / "report.md"
 TARGETS_FILE = ROOT / "targets.txt"
 LOG_PATH = LOG_DIR / "recon.log"
 TARGETS_NEW_FILE = ROOT / "targets_new.txt"
-TARGETS_NOT_PROCESSED_FILE = ROOT / "targets-related-not-processed.txt"
+# File used to record any domains or hosts that are deliberately ignored during
+# the OSINT enrichment stage so the operator can review them manually later.
+TARGETS_NOT_PROCESSED_FILE = ROOT / "targets_related_not_processed.txt"
 
 
 TOOL_SUMMARIES = {
@@ -1477,6 +1479,27 @@ def load_inventory() -> List[Mapping[str, object]]:
     return []
 
 
+def load_domain_summaries() -> List[Mapping[str, object]]:
+    # Read the optional domain-level intelligence that the aggregator stores so
+    # the Markdown report can present theHarvester findings in a structured
+    # section. The helper returns an empty list when the JSON payload is missing
+    # or cannot be parsed safely.
+    if not INVENTORY_JSON.exists():
+        return []
+
+    try:
+        payload = json.loads(INVENTORY_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    if isinstance(payload, dict):
+        raw_domains = payload.get("harvester_domains")
+        if isinstance(raw_domains, list):
+            return [entry for entry in raw_domains if isinstance(entry, dict)]
+
+    return []
+
+
 def write_report(
     args: argparse.Namespace,
     targets: Sequence[str],
@@ -1514,25 +1537,185 @@ def write_report(
         lines.append(f"- **{tool}**: {summary}")
 
     lines.append("")
-    lines.append("## Host Overview")
+    lines.append("## Host and Domain Inventory")
+
+    # Convert the discovery findings into a normalised lookup so that aliases
+    # (IP address vs. hostname) map back to the same bucket of open ports.
+    discovery_lookup: Dict[str, Set[int]] = {}
+    for label, ports in discovered_hosts.items():
+        if not label:
+            continue
+        normalised = _normalise_target(label)
+        if not normalised:
+            continue
+        port_set: Set[int] = set()
+        if ports:
+            for port in ports:
+                if port is None:
+                    continue
+                try:
+                    port_set.add(int(port))
+                except (TypeError, ValueError):
+                    continue
+        discovery_lookup[normalised] = port_set
+
+    documented_aliases: Set[str] = set()
+
     if inventory:
         for entry in inventory:
-            ip = entry.get("ip", "unknown")
-            hostnames = ", ".join(entry.get("hostnames", [])) or "-"
-            ports = ", ".join(str(port) for port in entry.get("open_ports", [])) or "-"
-            os_name = entry.get("os") or "-"
-            lines.append(f"- **{ip}** – Hostnames: {hostnames}; Ports: {ports}; OS: {os_name}")
+            if not isinstance(entry, Mapping):
+                continue
+
+            ip = str(entry.get("ip") or "unknown")
+            lines.append(f"### {ip}")
+
+            aliases: Set[str] = {alias for alias in {ip} if alias}
+            hostnames = [hostname for hostname in entry.get("hostnames", []) if hostname]
+            aliases.update(hostnames)
+
+            for alias in aliases:
+                documented_aliases.add(_normalise_target(alias))
+
+            hostname_text = ", ".join(hostnames) if hostnames else "-"
+            lines.append(f"- **Hostnames**: {hostname_text}")
+
+            open_ports = [
+                int(port)
+                for port in entry.get("open_ports", [])
+                if isinstance(port, int) or (isinstance(port, str) and port.isdigit())
+            ]
+            open_text = ", ".join(str(port) for port in sorted(set(open_ports))) or "-"
+            lines.append(f"- **Inventory open ports**: {open_text}")
+
+            # Merge discovery results from all known aliases for the current host.
+            discovery_ports: Set[int] = set()
+            for alias in aliases:
+                normalised = _normalise_target(alias)
+                discovery_ports.update(discovery_lookup.get(normalised, set()))
+            if discovery_ports:
+                discovery_text = ", ".join(str(port) for port in sorted(discovery_ports))
+            else:
+                discovery_text = "not observed during discovery"
+            lines.append(f"- **Discovery ports**: {discovery_text}")
+
+            os_name = entry.get("os") or "Unknown"
+            accuracy = entry.get("os_accuracy")
+            if accuracy:
+                lines.append(f"- **Operating system**: {os_name} (confidence {accuracy}%)")
+            else:
+                lines.append(f"- **Operating system**: {os_name}")
+
+            related_domains = entry.get("related_domains", []) or []
+            related_text = ", ".join(related_domains) if related_domains else "-"
+            lines.append(f"- **Related domains**: {related_text}")
+
+            services = entry.get("services") or []
+            if services:
+                lines.append("- **Services**:")
+                for service in services:
+                    if not isinstance(service, Mapping):
+                        continue
+                    port = service.get("port")
+                    proto = service.get("proto") or "tcp"
+                    name = service.get("service") or "unknown"
+                    state = service.get("state") or "unknown"
+                    product = service.get("product") or ""
+                    version = service.get("version") or ""
+                    summary_parts = []
+                    if port is not None:
+                        summary_parts.append(f"{port}/{proto}")
+                    summary_parts.append(f"state={state}")
+                    summary_parts.append(name)
+                    if product:
+                        summary_parts.append(product)
+                    if version:
+                        summary_parts.append(version)
+                    if service.get("tunnel"):
+                        summary_parts.append(f"tunnel={service['tunnel']}")
+                    service_line = " – ".join(part for part in summary_parts if part)
+                    lines.append(f"    - {service_line}")
+
+                    extras: List[str] = []
+                    banner = service.get("banner")
+                    if banner:
+                        extras.append(f"banner: {banner}")
+                    cpes = service.get("cpe") or []
+                    if cpes:
+                        extras.append(f"cpes: {' | '.join(str(cpe) for cpe in cpes if cpe)}")
+                    scripts = service.get("scripts") or []
+                    for script in scripts:
+                        if not isinstance(script, Mapping):
+                            continue
+                        script_id = script.get("id") or "script"
+                        output = (script.get("output") or "").strip()
+                        if output:
+                            extras.append(f"script {script_id}: {output}")
+                    for detail in extras:
+                        lines.append(f"      - {detail}")
+
+            harvester_data = entry.get("harvester")
+            if isinstance(harvester_data, Mapping) and harvester_data:
+                lines.append("- **OSINT excerpts**:")
+                domains = harvester_data.get("domains") or []
+                if domains:
+                    lines.append(f"    - Domains: {', '.join(domains)}")
+                for key, values in sorted(harvester_data.items()):
+                    if key == "domains":
+                        continue
+                    if not isinstance(values, list) or not values:
+                        continue
+                    label = key.replace("_", " ").capitalize()
+                    lines.append(f"    - {label}: {', '.join(values)}")
+
+            lines.append("")
     else:
         lines.append("No aggregated inventory was generated.")
 
-    lines.append("")
-    lines.append("## Discovery Summary")
-    for host, ports in discovered_hosts.items():
-        if ports:
-            port_list = ", ".join(str(port) for port in sorted(ports))
-        else:
-            port_list = "no open ports discovered"
-        lines.append(f"- {host}: {port_list}")
+    # Highlight any discovery findings that did not make it into the inventory,
+    # such as hosts that timed out during fingerprinting.
+    discovery_only: List[Tuple[str, Set[int]]] = []
+    for label, ports in discovered_hosts.items():
+        normalised = _normalise_target(label)
+        if normalised and normalised not in documented_aliases:
+            port_candidates = ports or []
+            port_set = {
+                int(port)
+                for port in port_candidates
+                if isinstance(port, int)
+                or (isinstance(port, str) and port.isdigit())
+            }
+            discovery_only.append((label, port_set))
+
+    if discovery_only:
+        lines.append("## Discovery-Only Hosts")
+        for label, ports in sorted(discovery_only, key=lambda item: item[0].lower()):
+            if ports:
+                port_text = ", ".join(str(port) for port in sorted(ports))
+            else:
+                port_text = "no open ports confirmed"
+            lines.append(f"- {label}: {port_text}")
+        lines.append("")
+
+    domain_summaries = load_domain_summaries()
+    if domain_summaries:
+        lines.append("## Domain Intelligence")
+        for summary in domain_summaries:
+            domain = summary.get("domain") or "unknown"
+            lines.append(f"### {domain}")
+            hosts = summary.get("hosts") or []
+            if hosts:
+                lines.append(f"- **Hosts**: {', '.join(hosts)}")
+            ips = summary.get("ips") or []
+            if ips:
+                lines.append(f"- **IP addresses**: {', '.join(ips)}")
+            sections = summary.get("sections")
+            if isinstance(sections, Mapping):
+                for key, values in sorted(sections.items()):
+                    if not isinstance(values, list) or not values:
+                        continue
+                    label = key.replace("_", " ").capitalize()
+                    lines.append(f"- **{label}**: {', '.join(values)}")
+            lines.append("")
 
     lines.append("")
     lines.append("## Screenshots")

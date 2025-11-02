@@ -161,6 +161,9 @@ def parse_smrib_json(path: str) -> Dict[str, Dict[str, List[int]]]:
         return ports
 
     def _traverse(node: object, current_ip: Optional[str] = None) -> None:
+        # Walk every branch of the JSON structure because smrib does not expose a
+        # stable schema. The visitor associates nearby IP address fields with the
+        # ports discovered in the same portion of the tree.
         if isinstance(node, dict):
             ip_value: Optional[str] = None
             for key in ("ip", "host", "address", "ip_address"):
@@ -858,6 +861,9 @@ def build_inventory(
         if domain_summary["hosts"] or domain_summary["ips"] or domain_summary["sections"]:
             domain_summaries.append(domain_summary)
 
+        # Track every host already known in the consolidated inventory so their
+        # records can be enriched with theHarvester context extracted for the
+        # current domain.
         associated_ips = {
             finding.ip
             for finding in result.findings
@@ -865,6 +871,10 @@ def build_inventory(
         }
 
         if not associated_ips:
+            # When theHarvester surfaces hostnames that have not yet been tied to
+            # an IP in the inventory, search for partial matches (e.g. domains or
+            # subdomains) across the hostnames that Nmap reported. This captures
+            # infrastructure that resolves dynamically or is shared across hosts.
             candidate_hostnames = {finding.hostname.lower() for finding in result.findings}
             for ip, entry in inventory.items():
                 existing = [name.lower() for name in entry.get("hostnames", [])]
@@ -968,6 +978,8 @@ def export_csv(bundle: InventoryBundle, outpath: str) -> None:
             osname = entry.get("os") or ""
             os_accuracy = entry.get("os_accuracy") or ""
             ports = ";".join(str(port) for port in entry.get("open_ports", []))
+            # Flatten detailed service metadata into a single string so the CSV
+            # remains easy to scan without losing critical fingerprint data.
             service_descriptions = []
             for service in entry.get("services", []) or []:
                 if not isinstance(service, dict):

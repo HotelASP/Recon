@@ -6,6 +6,32 @@ scans, detailed Nmap fingerprinting, optional OSINT collection with theHarvester
 and screenshot capture with EyeWitness before aggregating everything into a single
 inventory and Markdown report.
 
+## Overview
+
+- Automates a complete reconnaissance run: discovery, fingerprinting, OSINT, and
+  reporting.
+- Normalises results from Masscan, Nmap, smrib, and theHarvester into a single
+  inventory (`inventory.json`/`inventory.csv`).
+- Captures HTTP(S) screenshots with EyeWitness for rapid visual triage.
+- Generates an opinionated Markdown report that highlights the discovered hosts,
+  associated domains, and OSINT artefacts.
+
+## Quick Start
+
+1. Populate [`targets.txt`](./targets.txt) with hosts or networks to probe
+   (see [Targets](#targets)).
+2. Install the tools listed below and ensure they are on `PATH`.
+3. Execute a reconnaissance run:
+
+   ```bash
+   python3 run_recon.py --scanner masscan --top-ports 200
+   ```
+
+   The command wipes `out/` (unless `--preserve-output` is set), performs a fast
+   Masscan sweep of the top 200 ports, fingerprints the responsive services with
+   Nmap, runs theHarvester for OSINT, and collates everything into
+   `out/report/`.
+
 ## Prerequisites
 
 The Python script shells out to several third-party tools. Install whichever
@@ -43,6 +69,34 @@ the port list empty to fall back to the global CLI options (`--ports`,
 ```bash
 python3 run_recon.py [options]
 ```
+
+### Example Workflows
+
+- **Full TCP sweep with Nmap only** – useful when Masscan is unavailable or
+  firewall policies block SYN scans:
+
+  ```bash
+  python3 run_recon.py --scanner nmap --port-range 1-65535 --skip-eyewitness
+  ```
+
+- **Iterative OSINT enrichment** – discover additional domains via theHarvester
+  and feed them back into Nmap automatically:
+
+  ```bash
+  python3 run_recon.py \
+    --scanner smrib \
+    --targets-file targets.txt \
+    --search-related-data \
+    --harvester-sources 'crtsh,bing'
+  ```
+
+- **Follow-up run against newly observed services** – export the refreshed
+  target list and run a narrower scan:
+
+  ```bash
+  python3 run_recon.py --targets-new-export --ports 80,443,8443
+  python3 run_recon.py --targets-file targets_new.txt --scanner masscan
+  ```
 
 | Option | Description |
 | --- | --- |
@@ -84,8 +138,8 @@ an error. When none is supplied, the script scans the top 100 ports.
 5. **EyeWitness (optional)** – Builds a list of detected HTTP/HTTPS services and
    captures screenshots in headless mode unless `--skip-eyewitness` is supplied
    or EyeWitness is missing.
-6. **Reporting** – Generates `out/report/report.md` summarising the run,
-   inventories hosts, and embeds any screenshots.
+6. **Reporting** – Generates `out/report/report.md` with a structured host and
+   domain breakdown, summarises the run, and embeds any screenshots.
 
 ## Output Layout
 
@@ -102,6 +156,9 @@ that context is useful:
 - `out/report/` – Aggregated inventory (`inventory.json`/`inventory.csv`) and the
   Markdown report (`report.md`).
 - `out/log/` – `recon.log` capturing a transcript of the workflow.
+- `targets_related_not_processed.txt` – Domains/hosts discovered during OSINT
+  that were intentionally skipped to avoid scanning infrastructure outside the
+  defined scope.
 
 The script wipes the directories at the start of each run to avoid mixing
 artefacts from different sessions. Use `--preserve-output` if you prefer to keep
@@ -116,5 +173,8 @@ older data (be aware that aggregation will then include historic results).
   change logging verbosity or output flags.
 - EyeWitness can be time-consuming. Disable it with `--skip-eyewitness` when you
   only need the textual inventory.
+- Review `targets_related_not_processed.txt` after runs that enable
+  `--search-related-data` to see which related assets were skipped because they
+  fell outside the permitted scope.
 
 Happy scanning!
