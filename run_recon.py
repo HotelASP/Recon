@@ -501,7 +501,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--smrib-extra",
         action="append",
-        help="Additional arguments to forward to smrib.py after the defaults.",
+        nargs="+",
+        metavar="ARG",
+        help=(
+            "Additional arguments to forward to smrib.py after the defaults. "
+            "Values that begin with a dash do not need special quoting."
+        ),
     )
     parser.add_argument(
         "--harvester-sources",
@@ -623,7 +628,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     if args.smrib_extra:
         extras: List[str] = []
         for entry in args.smrib_extra:
-            extras.extend(shlex.split(entry))
+            if isinstance(entry, str):
+                extras.extend(shlex.split(entry))
+            else:
+                extras.extend(entry)
         args.smrib_extra = extras or None
 
     return args
