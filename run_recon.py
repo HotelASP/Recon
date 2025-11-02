@@ -142,30 +142,23 @@ def _ensure_directory(path: Path) -> None:
 
 def reset_output_tree() -> None:
     # Clear artefacts from previous runs to avoid cross-run contamination when
-    # the operator has not requested ``--preserve-output``.
+    # the operator has not requested ``--preserve-output``. Removing the entire
+    # ``out`` directory guarantees no stale files linger from earlier
+    # executions, even if a new tool creates previously unknown subdirectories
+    # or artefacts.
+
+    _remove_path(OUT_DIR)
 
     for artefact in (
+        TARGETS_NOT_PROCESSED_FILE,
         MASSCAN_JSON,
         SMRIB_JSON,
         INVENTORY_JSON,
         INVENTORY_CSV,
         REPORT_PATH,
         LOG_PATH,
-        TARGETS_NOT_PROCESSED_FILE,
     ):
         _remove_path(artefact)
-
-    for directory in (
-        DISCOVERY_DIR,
-        NMAP_DIR,
-        HARVESTER_DIR,
-        EYEWITNESS_DIR,
-        MASSCAN_DIR,
-        SMRIB_DIR,
-        REPORT_DIR,
-        LOG_DIR,
-    ):
-        _remove_path(directory)
 
 
 def _ensure_log_file() -> TextIO:
