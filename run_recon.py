@@ -115,7 +115,8 @@ _LOG_FILE: Optional[TextIO] = None
 
 
 def _remove_path(path: Path) -> None:
-    """Delete a file or directory, ignoring missing-path errors."""
+    # Delete a file or directory while ignoring missing-path errors so previous
+    # runs do not block a new execution.
 
     try:
         if not path.exists():
@@ -129,14 +130,16 @@ def _remove_path(path: Path) -> None:
 
 
 def _ensure_directory(path: Path) -> None:
-    """Create ``path`` (and parents) and ensure it is owned by the target user."""
+    # Create the provided directory (and parents) and normalise ownership so
+    # follow-up stages can safely write artefacts.
 
     path.mkdir(parents=True, exist_ok=True)
     ensure_path_owner(path, parents=True)
 
 
 def reset_output_tree() -> None:
-    """Clear artefacts from previous runs to avoid cross-run contamination."""
+    # Clear artefacts from previous runs to avoid cross-run contamination when
+    # the operator has not requested ``--preserve-output``.
 
     for artefact in (
         MASSCAN_JSON,
@@ -163,7 +166,8 @@ def reset_output_tree() -> None:
 
 
 def _ensure_log_file() -> TextIO:
-    """Return an open handle to the workflow log file, creating it on demand."""
+    # Return an open handle to the workflow log file, creating it on demand and
+    # stamping it with a clear start marker.
 
     global _LOG_FILE
     if _LOG_FILE is None:
@@ -179,7 +183,8 @@ def _ensure_log_file() -> TextIO:
 
 
 def _close_log_file() -> None:
-    """Close the log file when the interpreter exits."""
+    # Close the log file when the interpreter exits to avoid leaving handles
+    # dangling on disk.
 
     global _LOG_FILE
     if _LOG_FILE is not None:
@@ -191,7 +196,8 @@ atexit.register(_close_log_file)
 
 
 def _log_message(message: str) -> None:
-    """Append a formatted message to the log file."""
+    # Append a formatted message to the log file, ensuring newline handling is
+    # consistent across callers.
 
     handle = _ensure_log_file()
     if message.endswith("\n"):
@@ -202,7 +208,8 @@ def _log_message(message: str) -> None:
 
 
 def _log_stream_output(text: str) -> None:
-    """Record raw subprocess output in the log file."""
+    # Record raw subprocess output in the log file without altering whitespace
+    # so troubleshooting remains accurate.
 
     handle = _ensure_log_file()
     handle.write(text)
@@ -212,7 +219,8 @@ def _log_stream_output(text: str) -> None:
 
 
 def echo(message: str, *, essential: bool = False) -> None:
-    """Print a message unless running in silent mode, always logging it."""
+    # Print a message unless running in silent mode while always logging it to
+    # the recon log for later review.
 
     _log_message(message)
     if not _SILENT_MODE or essential or message.startswith("[!]"):
@@ -222,7 +230,8 @@ def echo(message: str, *, essential: bool = False) -> None:
 def pretty_print_stage_inputs(
     stage_label: str, entries: Iterable[Tuple[object, ...]]
 ) -> None:
-    """Pretty print the tuples that will be fed into a pipeline stage."""
+    # Pretty print the tuples that will be fed into a pipeline stage so the
+    # operator knows which targets and port strategies are grouped together.
 
     items = list(entries)
     echo(f"[+] {stage_label} input tuples:", essential=True)
@@ -236,10 +245,11 @@ def pretty_print_stage_inputs(
 
 
 def echo_stage(stage_number: int, title: str, *, summary: Optional[str] = None) -> None:
-    """Emit a prominent stage heading so operators can follow progress."""
+    # Emit a prominent stage heading so operators can follow progress through
+    # the workflow and understand the current objective.
 
     header = f"[+] STAGE {stage_number}: {title}"
-    border = "=" * len(summary)
+    border = "=" * max(len(header), 32)
     echo("", essential=True)
     echo(border, essential=True)
     echo(header, essential=True)
@@ -249,7 +259,8 @@ def echo_stage(stage_number: int, title: str, *, summary: Optional[str] = None) 
 
 
 def warn_privileges(tool: str, use_sudo: bool) -> None:
-    """Warn once when a scanner is likely to require elevated privileges."""
+    # Warn once when a scanner is likely to require elevated privileges,
+    # reminding the operator they may need to rerun with ``--sudo``.
 
     if use_sudo:
         return
@@ -274,7 +285,8 @@ def warn_privileges(tool: str, use_sudo: bool) -> None:
 
 
 def ensure_writable_directory(path: Path) -> None:
-    """Ensure that the provided directory exists and is writable."""
+    # Ensure that the provided directory exists and is writable, giving clear
+    # errors when a permissions issue would otherwise surface later.
 
     try:
         _ensure_directory(path)
@@ -301,7 +313,8 @@ def ensure_writable_directory(path: Path) -> None:
 
 
 def _download_scanner_archive(url: str) -> bytes:
-    """Retrieve the zipped Scanner repository from GitHub."""
+    # Retrieve the zipped Scanner repository from GitHub and return the raw
+    # bytes so they can be extracted into ``scanner/``.
 
     request = Request(url, headers={"User-Agent": "ReconScannerFetcher/1.0"})
     with urlopen(request) as response:
@@ -309,7 +322,8 @@ def _download_scanner_archive(url: str) -> bytes:
 
 
 def _extract_scanner_archive(archive_bytes: bytes, destination: Path) -> None:
-    """Extract the downloaded Scanner repository into ``destination``."""
+    # Extract the downloaded Scanner repository into ``destination`` while
+    # discarding the top-level folder created by GitHub archives.
 
     with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
         root_prefix: Optional[str] = None
@@ -340,8 +354,10 @@ def _extract_scanner_archive(archive_bytes: bytes, destination: Path) -> None:
                 shutil.copyfileobj(source, handle)
 
 
-def ensure_scanner_repository() -> None:
-    """Ensure the ``scanner`` directory contains the upstream Scanner project."""
+def ensure_scanner_repository() -> bool:
+    # Ensure the ``scanner`` directory contains the upstream Scanner project so
+    # the bundled smrib.py is available. Returning ``False`` allows callers to
+    # gracefully fall back to Nmap when GitHub cannot be reached.
 
     scanner_dir = SCANNER_DIR
     scanner_dir.mkdir(parents=True, exist_ok=True)
@@ -349,7 +365,7 @@ def ensure_scanner_repository() -> None:
     smrib_path = scanner_dir / "smrib.py"
     data_dir = scanner_dir / "data"
     if smrib_path.is_file() and data_dir.is_dir():
-        return
+        return True
 
     echo(
         "[!] Local scanner assets missing – downloading HotelASP/Scanner from GitHub.",
@@ -373,15 +389,20 @@ def ensure_scanner_repository() -> None:
                 essential=True,
             )
     else:
-        raise SystemExit(
-            "Unable to download the Scanner repository from GitHub. Check your network "
-            "connectivity and retry."
-        ) from last_error
+        echo(
+            "[!] Unable to download the Scanner repository from GitHub after trying all fallbacks.",
+            essential=True,
+        )
+        if last_error is not None:
+            echo(f"    Last error: {last_error}", essential=True)
+        return False
 
     if not smrib_path.is_file() or not data_dir.is_dir():
-        raise SystemExit(
-            "Downloaded Scanner repository is incomplete – smrib.py or the data directory is missing."
+        echo(
+            "[!] Downloaded Scanner repository is incomplete – smrib.py or the data directory is missing.",
+            essential=True,
         )
+        return False
 
     try:
         current_mode = smrib_path.stat().st_mode
@@ -391,6 +412,7 @@ def ensure_scanner_repository() -> None:
 
     ensure_tree_owner(scanner_dir)
     echo("[+] Scanner repository ready", essential=True)
+    return True
 
 
 @dataclass
@@ -423,10 +445,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     # Configure the command-line interface and explain every supported stage so
     # the automation can be controlled without editing the script.
     parser = argparse.ArgumentParser(
+        add_help=False,
         description=(
             "Run the reconnaissance workflow: discovery (masscan/smrib/nmap) → "
             "detailed Nmap fingerprinting → theHarvester → aggregation."
-        )
+        ),
+    )
+    parser.add_argument(
+        "-h",
+        "--help",
+        "--?",
+        action="help",
+        help="Show this help message and exit.",
     )
     parser.add_argument(
         "--scanner",
@@ -524,6 +554,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "of a run. When enabled, results from previous executions may bleed "
             "into the current inventory."
         ),
+    )
+    parser.add_argument(
+        "--sudo",
+        action="store_true",
+        help="Prefix scanner commands with sudo when the binary is available.",
     )
     parser.add_argument(
         "--targets",
@@ -807,7 +842,8 @@ def prefix_command(cmd: List[str], use_sudo: bool) -> List[str]:
 
 
 def _format_banner(title: str) -> List[str]:
-    """Create a high-contrast banner that highlights the running tool."""
+    # Create a high-contrast banner that highlights the running tool and makes
+    # stage transitions obvious in the terminal output.
 
     clean = " ".join(title.strip().split()) or "Running"
     label = f" RUNNING: {clean} "
@@ -1088,7 +1124,8 @@ def merge_discovered_hosts(
 def display_discovered_hosts(
     discovered_hosts: Mapping[str, Set[int]],
 ) -> None:
-    """Print a concise summary of discovered hosts and their ports."""
+    # Print a concise summary of discovered hosts and their ports so operators
+    # can quickly validate discovery progress.
 
     if not discovered_hosts:
         echo("[!] No hosts discovered during the discovery phase.", essential=True)
@@ -1154,7 +1191,8 @@ def export_target_file(
     inventory: Sequence[Mapping[str, object]],
     domains: Iterable[str],
 ) -> None:
-    """Persist consolidated targets with per-host ports for future runs."""
+    # Persist consolidated targets with per-host ports for future runs,
+    # mirroring the ``targets.txt`` syntax for continuity.
 
     entries: Dict[str, Set[int]] = {}
 
@@ -1222,13 +1260,15 @@ def export_not_processed_targets(entries: Iterable[str]) -> None:
 
 
 def _normalise_target(value: str) -> str:
-    """Return a consistent identifier for tracking processed targets."""
+    # Return a consistent identifier for tracking processed targets so merges
+    # and comparisons stay reliable.
 
     return value.strip().lower()
 
 
 def _normalise_ip(value: Optional[str]) -> Optional[str]:
-    """Return a canonical representation of *value* when it is an IP address."""
+    # Return a canonical representation of ``value`` when it is an IP address,
+    # allowing IPv4/IPv6 lookups to align across stages.
 
     if not value:
         return None
@@ -1246,7 +1286,8 @@ def _normalise_ip(value: Optional[str]) -> Optional[str]:
 def _validate_osint_host_ip_uniqueness(
     results: Mapping[str, aggregate.HarvesterDomainResult]
 ) -> None:
-    """Ensure theHarvester host/IP tuples are unique before further enrichment."""
+    # Ensure theHarvester host/IP tuples are unique before further enrichment so
+    # follow-up scans are not duplicated unnecessarily.
 
     seen_pairs: Set[Tuple[str, str]] = set()
     ip_to_host: Dict[str, str] = {}
@@ -1290,7 +1331,8 @@ def _validate_osint_host_ip_uniqueness(
 
 
 def _registered_domain(candidate: str) -> Optional[str]:
-    """Return the registrable domain component of *candidate* if possible."""
+    # Return the registrable domain component of ``candidate`` if possible,
+    # simplifying domain comparisons for OSINT processing.
 
     if not candidate:
         return None
@@ -1312,7 +1354,8 @@ def _registered_domain(candidate: str) -> Optional[str]:
 
 
 def _domain_is_permitted(candidate: str, permitted: Set[str]) -> bool:
-    """Return ``True`` when *candidate* belongs to one of the permitted domains."""
+    # Return ``True`` when ``candidate`` belongs to one of the permitted domains
+    # so unrelated OSINT results can be filtered out.
 
     if not permitted:
         return False
@@ -1338,7 +1381,8 @@ def extract_domains_from_nmap() -> Set[str]:
 
 
 def _extract_registered_domains_from_hosts(hosts: Iterable[str]) -> Set[str]:
-    """Derive registrable domains from an iterable of hostnames."""
+    # Derive registrable domains from an iterable of hostnames, keeping the set
+    # unique to minimise redundant OSINT lookups.
 
     domains: Set[str] = set()
     for host in hosts:
@@ -1349,7 +1393,8 @@ def _extract_registered_domains_from_hosts(hosts: Iterable[str]) -> Set[str]:
 
 
 def extract_domains_from_targets(targets: Iterable[str]) -> Set[str]:
-    """Derive registrable domains directly from the requested *targets*."""
+    # Derive registrable domains directly from the requested targets so OSINT
+    # scoping can include original entries even when discovery found nothing.
 
     domains: Set[str] = set()
     for target in targets:
@@ -1438,7 +1483,8 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
 
 
 def _resolve_related_targets(candidates: Iterable[str]) -> List[str]:
-    """Filter and de-duplicate hostnames/IPs extracted from OSINT tools."""
+    # Filter and de-duplicate hostnames/IPs extracted from OSINT tools so only
+    # unique entries are scheduled for follow-up scans.
 
     resolved: List[str] = []
     seen: Set[str] = set()
@@ -1482,7 +1528,8 @@ def aggregate_results() -> None:
 
 
 def display_inventory_contents() -> None:
-    """Print the contents of the aggregated inventory for quick inspection."""
+    # Print the contents of the aggregated inventory for quick inspection,
+    # helping operators gauge the breadth of results without opening files.
 
     if not INVENTORY_JSON.exists():
         echo("[!] inventory.json not found – nothing to display.", essential=True)
@@ -1992,7 +2039,23 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     global _SILENT_MODE
     _SILENT_MODE = args.silent
 
-    ensure_scanner_repository()
+    if args.scanner == "smrib":
+        smrib_path = Path(args.smrib_path).expanduser()
+        if args.smrib_path == DEFAULT_SMRIB_PATH and not smrib_path.is_file():
+            if not ensure_scanner_repository():
+                echo(
+                    "[!] Falling back to Nmap for discovery because smrib.py could not be retrieved from GitHub.",
+                    essential=True,
+                )
+                args.scanner = "nmap"
+            else:
+                args.smrib_path = DEFAULT_SMRIB_PATH
+        elif not smrib_path.is_file():
+            echo(
+                f"[!] smrib.py not found at {smrib_path} – switching discovery scanner to Nmap.",
+                essential=True,
+            )
+            args.scanner = "nmap"
 
     if not args.preserve_output:
         reset_output_tree()
@@ -2084,7 +2147,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     masscan_results: Dict[str, Set[int]] = {}
     smrib_results: Dict[str, Set[int]] = {}
     nmap_results: Dict[str, Set[int]] = {}
-    use_sudo = False
+    use_sudo = args.sudo
 
     stage_one_batches: List[Tuple[List[str], PortSelection]] = []
     stage_one_printable: List[Tuple[Tuple[str, ...], str]] = []

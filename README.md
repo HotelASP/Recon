@@ -30,7 +30,11 @@ inventory and Markdown report.
    The command wipes `out/` (unless `--preserve-output` is set), performs a fast
    Masscan sweep of the top 200 ports, fingerprints the responsive services with
    Nmap, runs theHarvester for OSINT, and collates everything into
-   `out/report/`.
+   `out/report/`. When `--scanner smrib` is selected (the default),
+   [`run_recon.py`](./run_recon.py) automatically downloads the upstream
+   `smrib.py` helper from GitHub into `scanner/`. If that download fails, the
+   workflow emits a warning and transparently falls back to Nmap for the
+   discovery pass so the run can continue.
 
 ## Prerequisites
 
@@ -44,8 +48,8 @@ components you intend to use and make sure they are discoverable in `PATH`:
 - [`theHarvester`] for OSINT lookups.
 - [`EyeWitness`] for HTTP
   screenshots.
-- [`smrib.py`] if you prefer that script for
-  the discovery pass.
+- [`smrib.py`] for the discovery pass (retrieved automatically when you rely on
+  the default scanner).
 
 Python 3.8+ is recommended. The included [`tools/aggregate.py`](./tools/aggregate.py)
 module performs the final data merge and is invoked automatically.
@@ -70,10 +74,20 @@ the port list empty to fall back to the global CLI options (`--ports`,
 python3 run_recon.py [options]
 ```
 
-The repository bundles a self-contained copy of `smrib.py` under
-[`scanner/smrib.py`](./scanner/smrib.py). The discovery stage now uses this
-script by default, so no external download is required unless you want to supply
-a customised scanner via `--smrib-path`.
+By default the discovery stage starts with `smrib.py`. The script downloads the
+HotelASP/Scanner repository on-demand into `scanner/` the first time it is
+needed and reuses that cached copy on subsequent runs. If the download cannot be
+completed, the tool notifies you and automatically switches the discovery stage
+to Nmap—mirroring what you would achieve manually with `--scanner nmap`.
+
+### Getting Help
+
+```bash
+python3 run_recon.py --help
+python3 run_recon.py --?
+```
+
+Both switches print the same detailed usage summary.
 
 ### Example Workflows
 
@@ -103,25 +117,64 @@ a customised scanner via `--smrib-path`.
   python3 run_recon.py --targets-file targets_new.txt --scanner masscan
   ```
 
-| Option | Description |
-| --- | --- |
-| `--scanner {masscan,smrib,nmap}` | Selects the discovery stage implementation (default: `smrib`). |
-| `--top-ports N` | Scans only the top `N` ports for discovery (mutually exclusive with `--port-range` and `--ports`). |
-| `--port-range RANGE` | Explicit port range or comma-separated list, e.g. `1-1024,3389`. Overrides `--top-ports` and is mutually exclusive with `--ports`. |
-| `--ports LIST` | Comma-separated list of TCP ports to scan and fingerprint (overrides discovery results and disables other port selectors). |
-| `--masscan-rate RATE` | Packet rate for Masscan when it is the chosen scanner (default: `1000`). |
-| `--masscan-status-interval SECONDS` | Seconds between Masscan status updates (use `0` to silence the progress lines). |
-| `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `$SMRIB_PATH` env var or `./scanner/smrib.py`). |
-| `--smrib-extra ...` | Additional arguments appended to the `smrib.py` command. Everything after this flag is forwarded. |
-| `--harvester-sources SOURCES` | Comma-separated data sources for theHarvester (default: `all`). |
-| `--harvester-source SOURCE` | Repeatable flag to list individual theHarvester sources (overrides `--harvester-sources`). |
-| `--harvester-limit N` | Result limit per source for theHarvester queries (default: `500`). |
-| `--skip-eyewitness` | Skip the EyeWitness screenshot stage entirely. |
-| `--eyewitness-timeout SECONDS` | HTTP request timeout used by EyeWitness (default: `10`). |
-| `--eyewitness-threads N` | Number of parallel EyeWitness browser threads (default: `4`). |
-| `--preserve-output` | Skip the automatic cleanup of `out/` so previous artefacts remain available. |
-| `--targets-new-export` | Write all discovered hosts/domains and their ports to `targets_new.txt` for reuse. |
-| `--sudo` | Prefix scanner commands with `sudo` when the binary is available. |
+### Command-line Options
+
+| Option | Description | Example |
+| --- | --- | --- |
+| `-h`, `--help`, `--?` | Show the built-in help text and exit. | `python3 run_recon.py --help` |
+| `--scanner {masscan,smrib,nmap}` | Select the discovery stage implementation (default: `smrib`). | `python3 run_recon.py --scanner nmap` |
+| `--top-ports N` | Scan only the top `N` ports (mutually exclusive with `--port-range`/`--ports`). | `--top-ports 200` |
+| `--port-range RANGE` | Explicit port range or comma-separated list (overrides `--top-ports`). | `--port-range 1-1024,3389` |
+| `--ports LIST` | Comma-separated list of TCP ports to probe and fingerprint (bypasses discovery results). | `--ports 80,443,8443` |
+| `--masscan-rate RATE` | Packet rate for Masscan scans (default: `1000`). | `--masscan-rate 5000` |
+| `--masscan-status-interval SECONDS` | Seconds between Masscan status updates (`0` silences progress). | `--masscan-status-interval 5` |
+| `--smrib-path PATH` | Filesystem location of `smrib.py` (default: `./scanner/smrib.py` or `$SMRIB_PATH`). | `--smrib-path ~/tools/smrib.py` |
+| `--smrib-extra ...` | Extra arguments forwarded verbatim to `smrib.py` (everything after the flag is passed through). | `--smrib-extra -- --timeout 3 --delay 0.5` |
+| `--harvester-sources SOURCES` | Comma-separated list of theHarvester backends (default: `all`). | `--harvester-sources crtsh,bing` |
+| `--harvester-source SOURCE` | Repeatable alternative to `--harvester-sources` for per-source control. | `--harvester-source crtsh --harvester-source urlscan` |
+| `--harvester-limit N` | Result limit per source for theHarvester queries (default: `500`). | `--harvester-limit 150` |
+| `--search-related-data` | Re-query Nmap and theHarvester for newly discovered hosts/domains (up to three rounds). | `--search-related-data` |
+| `--skip-eyewitness` | Skip the EyeWitness screenshot stage entirely. | `--skip-eyewitness` |
+| `--eyewitness-timeout SECONDS` | HTTP timeout for EyeWitness requests (default: `10`). | `--eyewitness-timeout 20` |
+| `--eyewitness-threads N` | Number of parallel EyeWitness browser threads (default: `4`). | `--eyewitness-threads 8` |
+| `--preserve-output` | Keep existing files under `out/` instead of wiping them at the start of a run. | `--preserve-output` |
+| `--sudo` | Prefix scanner commands with `sudo` when the binary is available. | `--sudo` |
+| `--targets TARGET [TARGET ...]` | Inline targets (hostnames, IPs, or CIDR ranges). Entries accept comma-separated values and the flag is repeatable. | `--targets 10.0.0.0/24,db.local` |
+| `--targets-file FILE` | Load additional targets from a file (one per line). | `--targets-file scope.txt` |
+| `--targets-new-export` | Write discovered hosts/domains and ports to `targets_new.txt` for follow-up runs. | `--targets-new-export` |
+| `--silent` | Display only essential status messages (full output still lands in `out/log/recon.log`). | `--silent` |
+
+### Targeted Option Examples
+
+- Tune Masscan's cadence and status output:
+
+  ```bash
+  python3 run_recon.py --scanner masscan --top-ports 100 --masscan-rate 7500 --masscan-status-interval 10 --targets 192.0.2.0/24
+  ```
+
+- Run the default smrib workflow with a custom executable and extra parameters:
+
+  ```bash
+  python3 run_recon.py --scanner smrib --smrib-path ~/tools/smrib.py --smrib-extra -- --timeout 5 --delay 0.25 --targets example.com
+  ```
+
+- Focus theHarvester on explicit sources with a tighter result limit while looping through related data:
+
+  ```bash
+  python3 run_recon.py --harvester-source crtsh --harvester-source urlscan --harvester-limit 200 --search-related-data --targets-file domains.txt
+  ```
+
+- Capture more EyeWitness screenshots while keeping previous artefacts on disk:
+
+  ```bash
+  python3 run_recon.py --eyewitness-timeout 20 --eyewitness-threads 8 --preserve-output --targets staging.example.com --ports 80,443
+  ```
+
+- Operate quietly with elevated privileges while combining inline and file-based target definitions:
+
+  ```bash
+  python3 run_recon.py --sudo --silent --targets prod.example.com,db.internal --targets-file scope.txt --targets-new-export
+  ```
 
 Passing more than one of `--top-ports`, `--port-range`, or `--ports` results in
 an error. When none is supplied, the script scans the top 100 ports.
