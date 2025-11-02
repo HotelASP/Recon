@@ -1,5 +1,5 @@
 hotelasp.com
-hotelalcaide.com
+#hotelalcaide.com
 #hackthissite.org
 #scanme.nmap.org
 #10.0.5.5
