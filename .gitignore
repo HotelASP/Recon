@@ -7,16 +7,10 @@ __pycache__/
 
 # outputs and credentials
 *.log
-geckodriver.log
 api-keys.yaml
 /etc/theHarvester/api-keys.yaml
-microsoft.gpg
 out/
 
-# scripts and target files
-git-update-local-fix.sh
-git-update-local.sh
-git-update-remote.sh
-targets.txt
+# target files
 targets_new.txt
 targets_related_not_processed.txt

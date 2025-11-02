@@ -1,0 +1,6 @@
+110.248.153.160.host.secureserver.net 21,80,443
+160.153.248.110 21,80,443
+appointmentsoftware.hotelasp.com 21,80,443
+bookingcalendar.hotelasp.com 21,80,443
+hotelasp.com
+secure.hotelasp.com 21,80,443
