@@ -656,7 +656,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         dest="stage2_use_nikto",
         type=_parse_boolean_option,
         metavar="BOOL",
-        help="Enable or disable Nikto during stage 2 fingerprinting (default: false).",
+        help="Enable or disable Nikto during stage 2 fingerprinting (default: true).",
     )
     parser.add_argument(
         "--search-related-data",
@@ -682,6 +682,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=int,
         default=4,
         help="Number of EyeWitness browser threads (default: 4).",
+    )
+    parser.add_argument(
+        "--show-inventory",
+        action="store_true",
+        help="Display the aggregated inventory.json contents when the run completes.",
+    )
+    parser.add_argument(
+        "--show-eyewitness",
+        action="store_true",
+        help="Open EyeWitness HTML reports in Firefox after capture.",
     )
     parser.add_argument(
         "--preserve-output",
@@ -808,12 +818,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
     if args.stage2_use_nmap is None and args.stage2_use_nikto is None:
         args.stage2_use_nmap = True
-        args.stage2_use_nikto = False
+        args.stage2_use_nikto = True
     else:
         if args.stage2_use_nmap is None:
             args.stage2_use_nmap = True
         if args.stage2_use_nikto is None:
-            args.stage2_use_nikto = False
+            args.stage2_use_nikto = True
 
     return args
 
@@ -2019,6 +2029,7 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
         return []
 
     screenshots: List[Path] = []
+    report_files: Set[Path] = set()
     for url in urls:
         safe_dir = re.sub(r"[^0-9A-Za-z_.-]", "_", url)
         output_dir = EYEWITNESS_DIR / safe_dir
@@ -2043,8 +2054,29 @@ def run_eyewitness(urls: Sequence[str], args: argparse.Namespace) -> List[Path]:
         run_command(cmd, description=description)
         ensure_tree_owner(output_dir)
         screenshots.extend(output_dir.rglob("*.png"))
+        for candidate in output_dir.rglob("*.html"):
+            if candidate.is_file():
+                report_files.add(candidate.resolve())
+
+    if args.show_eyewitness and report_files:
+        _launch_eyewitness_reports(sorted(report_files))
 
     return screenshots
+
+
+def _launch_eyewitness_reports(report_paths: Sequence[Path]) -> None:
+    # Open the generated EyeWitness HTML reports in Firefox for quick review.
+    firefox_path = shutil.which("firefox")
+    if not firefox_path:
+        echo("[!] Firefox not available – cannot display EyeWitness reports.", essential=True)
+        return
+
+    for report in report_paths:
+        try:
+            echo(f"[+] Opening EyeWitness report in Firefox: {report}", essential=True)
+            subprocess.Popen([firefox_path, str(report)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            echo(f"[!] Failed to launch Firefox for {report}: {exc}", essential=True)
 
 
 def load_inventory() -> List[Mapping[str, object]]:
@@ -2761,7 +2793,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     inventory = load_inventory()
     echo(f"[+] Aggregated inventory entries: {len(inventory)}", essential=True)
-    display_inventory_contents()
+    if args.show_inventory:
+        display_inventory_contents()
     urls = collect_http_urls(inventory)
     screenshots = run_eyewitness(urls, args)
 
