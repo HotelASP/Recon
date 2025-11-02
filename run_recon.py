@@ -230,6 +230,56 @@ def echo(message: str, *, essential: bool = False) -> None:
         print(message)
 
 
+def _summarize_port_sequence(ports: Sequence[int]) -> Optional[str]:
+    # Generate a compact range-based representation of port lists so stages
+    # with many contiguous ports don't flood the console with dozens of lines.
+
+    if not ports:
+        return None
+
+    if not all(isinstance(port, int) for port in ports):
+        return None
+
+    sorted_ports = sorted(ports)
+    ranges = []
+    start = previous = sorted_ports[0]
+
+    for port in sorted_ports[1:]:
+        if port == previous + 1:
+            previous = port
+            continue
+
+        ranges.append((start, previous))
+        start = previous = port
+
+    ranges.append((start, previous))
+
+    range_strings = []
+    for start, end in ranges:
+        if start == end:
+            range_strings.append(str(start))
+        else:
+            range_strings.append(f"{start}-{end}")
+
+    joined = ", ".join(range_strings)
+    total = len(sorted_ports)
+    return f"ports {joined} ({total} total)"
+
+
+def _format_stage_input(entry: Tuple[object, ...]) -> str:
+    # Provide readable, single-line descriptions for stage input tuples while
+    # falling back to ``pformat`` for structures we don't recognize.
+
+    if len(entry) == 2:
+        target, ports = entry
+        if isinstance(ports, Sequence) and not isinstance(ports, (str, bytes)):
+            summary = _summarize_port_sequence(ports)
+            if summary is not None:
+                return f"({target!r}, {summary})"
+
+    return pformat(entry, width=120, compact=True)
+
+
 def pretty_print_stage_inputs(
     stage_label: str, entries: Iterable[Tuple[object, ...]]
 ) -> None:
@@ -242,9 +292,10 @@ def pretty_print_stage_inputs(
         echo("    (no inputs)", essential=True)
         return
 
-    formatted = pformat(items, width=100, compact=False)
-    for line in formatted.splitlines():
-        echo(f"    {line}", essential=True)
+    for entry in items:
+        formatted = _format_stage_input(entry)
+        for line in formatted.splitlines():
+            echo(f"    {line}", essential=True)
 
 
 def echo_stage(stage_number: int, title: str, *, summary: Optional[str] = None) -> None:
