@@ -20,3 +20,4 @@ git-update-remote.sh
 targets.txt
 targets_new.txt
 targets_related_not_processed.txt
+scanner/
