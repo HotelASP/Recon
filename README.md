@@ -153,7 +153,7 @@ Both switches print the same detailed usage summary.
 | `--smrib-parameters ...` | Extra arguments forwarded verbatim to `smrib.py` (everything after the flag is passed through). | `--smrib-parameters -- --timeout 3 --delay 0.5` |
 | `--stage2-use-nmap BOOL` | Enable or disable Nmap during stage 2 fingerprinting (default: true). | `--stage2-use-nmap false` |
 | `--stage2-use-nikto BOOL` | Enable or disable Nikto during stage 2 fingerprinting (default: true). | `--stage2-use-nikto false` |
-| `--harvester-sources SOURCES` | Comma-separated list of theHarvester backends (default: `all`, which leverages `-quiet` to silence missing-API warnings). | `--harvester-sources crtsh,otx,threatcrowd` |
+| `--harvester-sources SOURCES` | Comma-separated list of theHarvester backends (default: `all`, which leverages the quiet flag to silence missing-API warnings). | `--harvester-sources crtsh,otx,threatcrowd` |
 | `--harvester-source SOURCE` | Repeatable alternative to `--harvester-sources` for per-source control. | `--harvester-source crtsh --harvester-source urlscan` |
 | `--harvester-limit N` | Result limit per source for theHarvester queries (default: `200`). | `--harvester-limit 150` |
 | `--search-related-data` | Re-query Nmap and theHarvester for newly discovered hosts/domains (up to three rounds). | `--search-related-data` |
