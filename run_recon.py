@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 # Orchestrate a three-stage reconnaissance workflow that chains together
-# discovery, service fingerprinting, and OSINT enrichment. The execution flow
-# is intentionally verbose to make the automation steps clear:
+# discovery, service fingerprinting, and post-scan enrichment. The execution
+# flow is intentionally verbose to make the automation steps clear:
 #
 # 1. Discovery scan – execute ``smrib.py`` (default), Masscan, or Nmap against
 #    the supplied targets to find live hosts and open TCP ports.
 # 2. Detailed fingerprinting – run a comprehensive Nmap scan for the discovered
-#    host/port combinations, capturing service, version, and OS information.
-# 3. OSINT collection – when supported, query theHarvester to enumerate
-#    hostnames and subdomains related to the identified domains.
+#    host/port combinations and optionally kick off Nikto to add HTTP-specific
+#    findings.
+# 3. Enrichment – combine OSINT from theHarvester with optional DNS lookups,
+#    banner grabs, WHOIS queries, certificate transparency searches, Shodan
+#    lookups, and MAC-address probing to broaden context around the observed
+#    infrastructure.
 #
 # The aggregated results are written to ``inventory.json`` and
 # ``inventory.csv`` and summarised in ``report.md`` together with any
