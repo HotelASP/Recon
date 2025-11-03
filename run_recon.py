@@ -1900,8 +1900,12 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
                 str(args.harvester_limit),
                 "-f",
                 str(prefix),
-                "-quiet",
             ]
+
+            if _harvester_supports_option(harvester_path, "-quiet"):
+                cmd.append("-quiet")
+            elif _harvester_supports_option(harvester_path, "-q"):
+                cmd.append("-q")
             json_flag: Optional[List[str]] = None
             if _harvester_supports_option(harvester_path, "-o"):
                 json_flag = ["-o", f"{prefix}.json"]
