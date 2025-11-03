@@ -83,16 +83,7 @@ TARGETS_NEW_FILE = ROOT / "targets_new.txt"
 # the OSINT enrichment stage so the operator can review them manually later.
 TARGETS_NOT_PROCESSED_FILE = ROOT / "targets_related_not_processed.txt"
 
-DEFAULT_HARVESTER_SOURCES: Tuple[str, ...] = (
-    "bufferoverun",
-    "crtsh",
-    "dnsdumpster",
-    "hackertarget",
-    "otx",
-    "rapiddns",
-    "threatcrowd",
-    "urlscan",
-)
+DEFAULT_HARVESTER_SOURCES: Tuple[str, ...] = ("all",)
 
 SCANNER_REPO_URLS = (
     "https://github.com/HotelASP/Scanner/archive/refs/heads/main.zip",
@@ -677,8 +668,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--harvester-sources",
         default=",".join(DEFAULT_HARVESTER_SOURCES),
         help=(
-            "Comma separated sources for theHarvester. Defaults to a curated set "
-            "that avoids API-key-only providers and aggressive rate limiting."
+            "Comma separated sources for theHarvester. Defaults to `all` to "
+            "query every available backend while relying on -quiet to suppress "
+            "API warning noise."
         ),
     )
     parser.add_argument(
@@ -1897,16 +1889,18 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
 
         if harvester_path:
             prefix = HARVESTER_DIR / domain
+            sources = args.harvester_sources or "all"
             cmd = [
                 harvester_path,
                 "-d",
                 domain,
                 "-b",
-                args.harvester_sources,
+                sources,
                 "-l",
                 str(args.harvester_limit),
                 "-f",
                 str(prefix),
+                "-quiet",
             ]
             json_flag: Optional[List[str]] = None
             if _harvester_supports_option(harvester_path, "-o"):
@@ -1919,7 +1913,7 @@ def run_harvester(domains: Iterable[str], args: argparse.Namespace) -> None:
             if json_flag:
                 cmd.extend(json_flag)
             description = (
-                f"theHarvester OSINT for {domain} – enumerating hosts via sources: {args.harvester_sources}"
+                f"theHarvester OSINT for {domain} – enumerating hosts via sources: {sources}"
             )
             run_command(cmd, description=description)
             ensure_tree_owner(HARVESTER_DIR)
