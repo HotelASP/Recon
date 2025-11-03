@@ -2375,8 +2375,9 @@ def _merge_mac_entries(
 def _collect_local_mac_addresses(
     discovered_hosts: Optional[Mapping[str, Set[int]]],
     vendor_map: Mapping[str, str],
+    ip_host_assignments: Optional[Mapping[str, str]] = None,
 ) -> Tuple[int, Set[str], int, bool]:
-    if not discovered_hosts:
+    if not discovered_hosts and not ip_host_assignments:
         return 0, set(), 0, False
 
     entries_written = 0
@@ -2384,8 +2385,56 @@ def _collect_local_mac_addresses(
     total_occurrences = 0
     attempted = False
 
-    for label, ports in sorted(discovered_hosts.items(), key=lambda item: item[0]):
-        ip_normalised = _normalise_ip(label)
+    candidates: Dict[str, Dict[str, object]] = {}
+
+    if discovered_hosts:
+        for label, ports in sorted(discovered_hosts.items(), key=lambda item: item[0]):
+            ip_normalised = _normalise_ip(label)
+            if not ip_normalised:
+                continue
+
+            metadata = candidates.setdefault(
+                ip_normalised,
+                {"labels": set(), "ports": set(), "sources": set()},
+            )
+
+            labels = metadata.setdefault("labels", set())
+            if isinstance(labels, set):
+                labels.add(label)
+
+            if ports:
+                port_set = metadata.setdefault("ports", set())
+                if isinstance(port_set, set):
+                    for port in ports:
+                        try:
+                            port_set.add(int(port))
+                        except (TypeError, ValueError):
+                            continue
+
+            sources = metadata.setdefault("sources", set())
+            if isinstance(sources, set):
+                sources.add("discovery")
+
+    if ip_host_assignments:
+        for ip_value, label in sorted(ip_host_assignments.items()):
+            ip_normalised = _normalise_ip(ip_value)
+            if not ip_normalised:
+                continue
+
+            metadata = candidates.setdefault(
+                ip_normalised,
+                {"labels": set(), "ports": set(), "sources": set()},
+            )
+
+            labels = metadata.setdefault("labels", set())
+            if isinstance(labels, set) and label and label != ip_normalised:
+                labels.add(label)
+
+            sources = metadata.setdefault("sources", set())
+            if isinstance(sources, set):
+                sources.add("osint")
+
+    for ip_normalised, metadata in sorted(candidates.items(), key=lambda item: item[0]):
         if not ip_normalised:
             continue
         try:
@@ -2443,10 +2492,32 @@ def _collect_local_mac_addresses(
         mac_entries = sorted(aggregated.values(), key=lambda item: item.get("address", ""))
 
         local_context: Dict[str, object] = {"ip": ip_normalised}
-        if label != ip_normalised:
-            local_context["label"] = label
-        if ports:
-            local_context["ports"] = sorted({int(port) for port in ports if isinstance(port, int)})
+
+        labels = metadata.get("labels")
+        if isinstance(labels, set):
+            cleaned_labels = sorted(
+                {value for value in labels if isinstance(value, str) and value.strip()}
+            )
+            if cleaned_labels:
+                filtered = [value for value in cleaned_labels if value != ip_normalised]
+                if len(filtered) == 1:
+                    local_context["label"] = filtered[0]
+                elif filtered:
+                    local_context["labels"] = filtered
+
+        ports = metadata.get("ports")
+        if isinstance(ports, set):
+            cleaned_ports = sorted({int(port) for port in ports if isinstance(port, int)})
+            if cleaned_ports:
+                local_context["ports"] = cleaned_ports
+
+        sources = metadata.get("sources")
+        if isinstance(sources, set):
+            cleaned_sources = sorted(
+                {value for value in sources if isinstance(value, str) and value}
+            )
+            if cleaned_sources:
+                local_context["sources"] = cleaned_sources
 
         payload_out: Dict[str, object] = {
             "domain": ip_normalised,
@@ -2497,6 +2568,7 @@ def _collect_local_mac_addresses(
 
 def run_mac_address_search(
     discovered_hosts: Optional[Mapping[str, Set[int]]] = None,
+    ip_host_assignments: Optional[Mapping[str, str]] = None,
 ) -> None:
     vendor_map = _load_mac_vendor_mapping()
 
@@ -2632,6 +2704,7 @@ def run_mac_address_search(
     entries, addresses, occurrences, attempted_local = _collect_local_mac_addresses(
         discovered_hosts,
         vendor_map,
+        ip_host_assignments,
     )
     if entries:
         total_entries += entries
@@ -4543,7 +4616,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         run_shodan_lookups(sorted(shodan_candidates), args.shodan_api_key)
 
     if args.stage3_mac:
-        run_mac_address_search(discovered_hosts)
+        run_mac_address_search(discovered_hosts, ip_host_assignments)
 
     export_not_processed_targets(not_processed_related)
 
