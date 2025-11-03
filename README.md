@@ -2,19 +2,23 @@
 
 `Recon` is an automation wrapper that glues together common network-reconnaissance
 steps. The entry point, [`run_recon.py`](./run_recon.py), walks through discovery
-scans, detailed Nmap fingerprinting, optional Nikto web assessments, OSINT
-collection with theHarvester, and screenshot capture with EyeWitness before
+scans, detailed Nmap fingerprinting, optional Nikto web assessments, enrichment
+tasks (DNS enumeration, WHOIS, certificate transparency, Shodan, MAC address
+analysis, and theHarvester OSINT), and screenshot capture with EyeWitness before
 aggregating everything into a single inventory and Markdown report.
 
 ## Overview
 
-- Automates a complete reconnaissance run: discovery, fingerprinting, OSINT, and
-  reporting.
-- Normalises results from Masscan, Nmap, smrib, Nikto, and theHarvester into a
-  single inventory (`inventory.json`/`inventory.csv`).
+- Automates a complete reconnaissance run: discovery, fingerprinting, enrichment,
+  and reporting.
+- Normalises results from Masscan, smrib, Nmap, Nikto, theHarvester, and Stage 3
+  enrichment tasks into a single inventory (`inventory.json`/`inventory.csv`).
 - Captures HTTP(S) screenshots with EyeWitness for rapid visual triage.
 - Generates an opinionated Markdown report that highlights the discovered hosts,
   associated domains, and OSINT artefacts.
+- Enriches findings with optional DNS record harvesting, service banner grabs,
+  WHOIS/certificate transparency lookups, Shodan queries, and MAC vendor
+  resolution to provide additional context.
 
 ## Quick Start
 
@@ -30,7 +34,9 @@ aggregating everything into a single inventory and Markdown report.
    The command wipes `out/` (unless `--preserve-output` is set), performs a fast
    Masscan sweep of the top 200 ports, fingerprints the responsive services with
    Nmap, probes discovered web targets with Nikto, runs theHarvester for OSINT,
-   and collates everything into `out/report/`. When `--scanner smrib` is
+   and (when enabled) executes the Stage 3 enrichment steps such as DNS
+   enumeration and WHOIS lookups before collating everything into `out/report/`.
+   When `--scanner smrib` is
    selected (the default),
    [`run_recon.py`](./run_recon.py) automatically downloads the upstream
    `smrib.py` helper from GitHub into `scanner/`. If that download fails, the
@@ -53,6 +59,9 @@ components you intend to use and make sure they are discoverable in `PATH`:
   misconfigurations and known issues.
 - [smrib.py](https://github.com/HotelASP/Scanner) for the discovery pass
   (retrieved automatically when you rely on the default scanner).
+- Optional enrichment stages fall back gracefully but benefit from tools such as
+  `dig` (DNS resolution) and the presence of an IEEE OUI database (often shipped
+  with Nmap) for MAC-vendor mapping.
 
 Python 3.8+ is recommended. The included [`tools/aggregate.py`](./tools/aggregate.py)
 module performs the final data merge and is invoked automatically.
@@ -214,12 +223,13 @@ an error. When none is supplied, the script scans the top 100 ports.
    discovery and flags common misconfigurations, dangerous files, and known
    vulnerabilities. Skip it with `--stage2-use-nikto false` or when Nikto is not
    installed.
-4. **OSINT (optional)** – Extracts domains from Nmap XML and queries
-   theHarvester. When theHarvester is unavailable, the script records basic `host`
-   and `dig` output instead.
+4. **Enrichment (optional)** – Extracts domains from Nmap XML and runs theHarvester
+   plus any enabled Stage 3 helpers (DNS enumeration, banner grabbing, WHOIS,
+   certificate transparency, Shodan, and MAC-address discovery). When a utility
+   is unavailable the script records whichever fallback data it can gather.
 5. **Aggregation** – Invokes [`tools/aggregate.py`](./tools/aggregate.py) to
-   consolidate Nmap, Masscan, smrib, Nikto, and theHarvester artefacts into
-   structured JSON/CSV files.
+   consolidate outputs from Masscan, smrib, Nmap, Nikto, theHarvester, and the
+   Stage 3 enrichment artefacts into structured JSON/CSV files.
 6. **EyeWitness (optional)** – Builds a list of detected HTTP/HTTPS services and
    captures screenshots in headless mode unless `--skip-eyewitness` is supplied
    or EyeWitness is missing.
@@ -229,8 +239,8 @@ an error. When none is supplied, the script scans the top 100 ports.
 ## Output Layout
 
 All artefacts live under [`out/`](./out) (created on demand). The directory is
-now tracked by Git so results from previous runs can be versioned or shared when
-that context is useful:
+ignored by Git to keep large scan results out of version control; re-run the
+workflow whenever you need fresh data:
 
 - `out/discovery/` – Raw discovery outputs when Nmap is used for stage one.
 - `out/nmap/` – Nmap XML/normal/grepable files for the fingerprinting stage.
@@ -239,12 +249,18 @@ that context is useful:
 - `out/eyewitness/` – Screenshot directories produced by EyeWitness.
 - `out/masscan/` – JSON exports created by Masscan (for example `masscan.json`).
 - `out/smrib/` – JSON exports produced by `smrib.py`.
+- `out/dns/` – Structured DNS enumeration results captured during Stage 3.
+- `out/banners/` – Service banner samples taken from responsive hosts.
+- `out/whois/` – Normalised WHOIS lookups for registrable domains.
+- `out/certificate_transparency/` – Entries sourced from public CT logs.
+- `out/shodan/` – Host intelligence returned from the Shodan API (when enabled).
+- `out/mac/` – MAC address discoveries with optional vendor information.
 - `out/report/` – Aggregated inventory (`inventory.json`/`inventory.csv`) and the
   Markdown report (`report.md`).
 - `out/log/` – `recon.log` capturing a transcript of the workflow.
 - `targets_related_not_processed.txt` – Domains/hosts discovered during OSINT
   that were intentionally skipped to avoid scanning infrastructure outside the
-  defined scope.
+  defined scope (created on demand and also ignored by Git).
 
 The script wipes the directories at the start of each run to avoid mixing
 artefacts from different sessions. Use `--preserve-output` if you prefer to keep
