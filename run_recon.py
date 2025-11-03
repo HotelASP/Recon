@@ -84,7 +84,6 @@ TARGETS_NEW_FILE = ROOT / "targets_new.txt"
 TARGETS_NOT_PROCESSED_FILE = ROOT / "targets_related_not_processed.txt"
 
 DEFAULT_HARVESTER_SOURCES: Tuple[str, ...] = (
-    "anubisdb",
     "bufferoverun",
     "crtsh",
     "dnsdumpster",
@@ -2071,6 +2070,11 @@ def run_dns_enumeration(domains: Sequence[str]) -> Dict[str, Dict[str, object]]:
         return results
 
     echo(f"[+] Stage 3 – enumerating DNS records for {len(domains)} domain(s)", essential=True)
+    echo(
+        "    ↳ Collecting A, AAAA, MX, NS, and TXT records (dig/socket) and saving JSON summaries to"
+        f" {DNS_ENUM_DIR}",
+        essential=True,
+    )
 
     for domain in domains:
         domain = domain.strip()
@@ -2161,6 +2165,11 @@ def run_banner_grabbing(domains: Sequence[str]) -> None:
         return
 
     echo(f"[+] Stage 3 – grabbing service banners for {len(domains)} domain(s)", essential=True)
+    echo(
+        "    ↳ Probing HTTP(S) (ports 80/443) and raw TCP services (ports 22/25) and storing banner captures in"
+        f" {BANNER_DIR}",
+        essential=True,
+    )
 
     for domain in domains:
         domain = domain.strip()
@@ -2248,6 +2257,11 @@ def run_whois_lookups(domains: Sequence[str]) -> None:
         return
 
     echo(f"[+] Stage 3 – performing WHOIS lookups for {len(domains)} domain(s)", essential=True)
+    echo(
+        "    ↳ Querying IANA and registry WHOIS servers; parsed responses are written to"
+        f" {WHOIS_DIR}",
+        essential=True,
+    )
 
     for domain in domains:
         domain = domain.strip()
@@ -2300,6 +2314,11 @@ def run_certificate_transparency(domains: Sequence[str]) -> None:
 
     echo(
         f"[+] Stage 3 – querying certificate transparency logs for {len(domains)} domain(s)",
+        essential=True,
+    )
+    echo(
+        "    ↳ Fetching recent crt.sh entries (up to 50 per domain) and recording them under"
+        f" {CT_DIR}",
         essential=True,
     )
 
