@@ -909,16 +909,339 @@ def parse_harvester_dir(harv_dir: str) -> Dict[str, HarvesterDomainResult]:
     return mapping
 
 
+def _load_json_file(path: Path) -> Optional[Mapping[str, object]]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception:
+        return None
+    if isinstance(data, Mapping):
+        return data
+    return None
+
+
+def parse_dns_dir(path: str) -> Dict[str, Dict[str, Any]]:
+    results: Dict[str, Dict[str, Any]] = {}
+    directory = Path(path)
+    if not directory.is_dir():
+        return results
+
+    for candidate in directory.iterdir():
+        if candidate.is_dir():
+            continue
+        data = _load_json_file(candidate)
+        if not data:
+            continue
+        domain = data.get("domain") or candidate.stem
+        if not isinstance(domain, str):
+            continue
+        domain_lower = domain.strip().lower()
+        if not domain_lower:
+            continue
+
+        payload: Dict[str, Any] = {}
+        records = data.get("records")
+        if isinstance(records, Mapping):
+            normalised: Dict[str, List[str]] = {}
+            for key, values in records.items():
+                if not isinstance(key, str):
+                    continue
+                if isinstance(values, list):
+                    cleaned = sorted(
+                        {
+                            str(value).strip()
+                            for value in values
+                            if isinstance(value, (str, int, float)) and str(value).strip()
+                        }
+                    )
+                elif isinstance(values, (str, int, float)):
+                    cleaned = [str(values).strip()]
+                else:
+                    cleaned = []
+                if cleaned:
+                    normalised[key.lower()] = cleaned
+            if normalised:
+                payload["records"] = normalised
+
+        errors = data.get("errors")
+        if isinstance(errors, list) and errors:
+            payload["errors"] = [str(item) for item in errors if item]
+        resolvers = data.get("resolvers")
+        if isinstance(resolvers, list) and resolvers:
+            payload["resolvers"] = [str(item) for item in resolvers if item]
+        timestamp = data.get("timestamp")
+        if isinstance(timestamp, str) and timestamp.strip():
+            payload["timestamp"] = timestamp.strip()
+
+        if payload:
+            results[domain_lower] = payload
+
+    return results
+
+
+def parse_banner_dir(path: str) -> Dict[str, Dict[str, Any]]:
+    results: Dict[str, Dict[str, Any]] = {}
+    directory = Path(path)
+    if not directory.is_dir():
+        return results
+
+    for candidate in directory.iterdir():
+        if candidate.is_dir():
+            continue
+        data = _load_json_file(candidate)
+        if not data:
+            continue
+        domain = data.get("domain") or candidate.stem
+        if not isinstance(domain, str):
+            continue
+        domain_lower = domain.strip().lower()
+        if not domain_lower:
+            continue
+
+        payload: Dict[str, Any] = {}
+        banners = data.get("banners")
+        if isinstance(banners, list):
+            cleaned_banners: List[Dict[str, Any]] = []
+            for entry in banners:
+                if not isinstance(entry, Mapping):
+                    continue
+                banner_entry: Dict[str, Any] = {}
+                for key in ("port", "protocol", "status", "reason", "server", "banner", "error"):
+                    value = entry.get(key)
+                    if value is not None:
+                        banner_entry[key] = value
+                headers = entry.get("headers")
+                if isinstance(headers, Mapping):
+                    header_map = {
+                        str(hkey): str(hval)
+                        for hkey, hval in headers.items()
+                        if isinstance(hkey, str) and isinstance(hval, str)
+                    }
+                    if header_map:
+                        banner_entry["headers"] = header_map
+                if banner_entry:
+                    cleaned_banners.append(banner_entry)
+            if cleaned_banners:
+                payload["banners"] = cleaned_banners
+
+        timestamp = data.get("timestamp")
+        if isinstance(timestamp, str) and timestamp.strip():
+            payload["timestamp"] = timestamp.strip()
+
+        if payload:
+            results[domain_lower] = payload
+
+    return results
+
+
+def parse_whois_dir(path: str) -> Dict[str, Dict[str, Any]]:
+    results: Dict[str, Dict[str, Any]] = {}
+    directory = Path(path)
+    if not directory.is_dir():
+        return results
+
+    for candidate in directory.iterdir():
+        if candidate.is_dir():
+            continue
+        data = _load_json_file(candidate)
+        if not data:
+            continue
+        domain = data.get("domain") or candidate.stem
+        if not isinstance(domain, str):
+            continue
+        domain_lower = domain.strip().lower()
+        if not domain_lower:
+            continue
+
+        payload: Dict[str, Any] = {}
+        for key in ("whois_server", "timestamp"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                payload[key] = value.strip()
+        parsed = data.get("parsed")
+        if isinstance(parsed, Mapping) and parsed:
+            payload["parsed"] = {str(k): v for k, v in parsed.items() if v is not None}
+        raw_response = data.get("raw_response")
+        if isinstance(raw_response, str) and raw_response.strip():
+            payload["raw_response"] = raw_response
+        errors = data.get("errors")
+        if isinstance(errors, list) and errors:
+            payload["errors"] = [str(item) for item in errors if item]
+
+        if payload:
+            results[domain_lower] = payload
+
+    return results
+
+
+def parse_ct_dir(path: str) -> Dict[str, Dict[str, Any]]:
+    results: Dict[str, Dict[str, Any]] = {}
+    directory = Path(path)
+    if not directory.is_dir():
+        return results
+
+    for candidate in directory.iterdir():
+        if candidate.is_dir():
+            continue
+        data = _load_json_file(candidate)
+        if not data:
+            continue
+        domain = data.get("domain") or candidate.stem
+        if not isinstance(domain, str):
+            continue
+        domain_lower = domain.strip().lower()
+        if not domain_lower:
+            continue
+
+        payload: Dict[str, Any] = {}
+        entries = data.get("entries")
+        if isinstance(entries, list):
+            cleaned_entries: List[Dict[str, Any]] = []
+            for entry in entries:
+                if not isinstance(entry, Mapping):
+                    continue
+                record: Dict[str, Any] = {}
+                for key in ("name", "issuer", "not_before", "not_after", "entry_timestamp", "min_cert_id"):
+                    value = entry.get(key)
+                    if value is not None:
+                        record[key] = value
+                if record:
+                    cleaned_entries.append(record)
+            if cleaned_entries:
+                payload["entries"] = cleaned_entries
+        if data.get("source"):
+            payload["source"] = data.get("source")
+        timestamp = data.get("timestamp")
+        if isinstance(timestamp, str) and timestamp.strip():
+            payload["timestamp"] = timestamp.strip()
+        error = data.get("error")
+        if isinstance(error, str) and error.strip():
+            payload["error"] = error.strip()
+
+        if payload:
+            results[domain_lower] = payload
+
+    return results
+
+
+def parse_shodan_dir(path: str) -> Dict[str, Dict[str, Any]]:
+    results: Dict[str, Dict[str, Any]] = {}
+    directory = Path(path)
+    if not directory.is_dir():
+        return results
+
+    for candidate in directory.iterdir():
+        if candidate.is_dir():
+            continue
+        data = _load_json_file(candidate)
+        if not data:
+            continue
+        ip_value = data.get("ip") or candidate.stem
+        if not isinstance(ip_value, str):
+            continue
+        ip_clean = ip_value.strip()
+        if not ip_clean:
+            continue
+
+        payload: Dict[str, Any] = {}
+        summary = data.get("summary")
+        if isinstance(summary, Mapping):
+            summary_payload: Dict[str, Any] = {}
+            for key in (
+                "ip",
+                "org",
+                "os",
+                "isp",
+                "asn",
+                "city",
+                "country",
+                "last_update",
+            ):
+                value = summary.get(key)
+                if value is not None:
+                    summary_payload[key] = value
+            ports = summary.get("ports")
+            if isinstance(ports, list):
+                summary_payload["ports"] = [
+                    int(port)
+                    for port in ports
+                    if isinstance(port, int) or (isinstance(port, str) and str(port).isdigit())
+                ]
+            hostnames = summary.get("hostnames")
+            if isinstance(hostnames, list):
+                summary_payload["hostnames"] = [
+                    str(name) for name in hostnames if isinstance(name, str) and name
+                ]
+            tags = summary.get("tags")
+            if isinstance(tags, list):
+                summary_payload["tags"] = [str(tag) for tag in tags if tag]
+            vulns = summary.get("vulns")
+            if isinstance(vulns, list):
+                summary_payload["vulns"] = [str(item) for item in vulns if item]
+            services = summary.get("services")
+            if isinstance(services, list):
+                cleaned_services: List[Dict[str, Any]] = []
+                for entry in services:
+                    if not isinstance(entry, Mapping):
+                        continue
+                    service_entry: Dict[str, Any] = {}
+                    for key in ("port", "transport", "product", "version", "timestamp", "data"):
+                        value = entry.get(key)
+                        if value is not None:
+                            service_entry[key] = value
+                    cpe_values = entry.get("cpe")
+                    if isinstance(cpe_values, list):
+                        service_entry["cpe"] = [str(cpe) for cpe in cpe_values if cpe]
+                    if service_entry:
+                        cleaned_services.append(service_entry)
+                if cleaned_services:
+                    summary_payload["services"] = cleaned_services
+            if summary_payload:
+                payload["summary"] = summary_payload
+
+        error = data.get("error")
+        if isinstance(error, str) and error.strip():
+            payload["error"] = error.strip()
+        timestamp = data.get("timestamp")
+        if isinstance(timestamp, str) and timestamp.strip():
+            payload["timestamp"] = timestamp.strip()
+
+        if payload:
+            results[ip_clean] = payload
+
+    return results
+
+
 def build_inventory(
     nmap_inv: Dict[str, Dict[str, Iterable[Dict[str, Optional[str]]]]],
     nikto_inv: Dict[str, Dict[int, Dict[str, Any]]],
     masscan_inv: Dict[str, Dict[str, List[int]]],
     smrib_inv: Dict[str, Dict[str, List[int]]],
     harv_map: Dict[str, HarvesterDomainResult],
+    dns_inv: Dict[str, Dict[str, Any]],
+    banner_inv: Dict[str, Dict[str, Any]],
+    whois_inv: Dict[str, Dict[str, Any]],
+    ct_inv: Dict[str, Dict[str, Any]],
+    shodan_inv: Dict[str, Dict[str, Any]],
 ) -> InventoryBundle:
     """Merge the tool-specific outputs into a unified inventory structure."""
 
     inventory: Dict[str, Dict[str, Optional[Iterable]]] = {}
+
+    def _ensure_host_entry(ip: str) -> Dict[str, Optional[Iterable]]:
+        return inventory.setdefault(
+            ip,
+            {
+                "ip": ip,
+                "entry_type": "host",
+                "open_ports": [],
+                "services": [],
+                "hostnames": [],
+                "os": None,
+                "os_accuracy": None,
+                "related_domains": [],
+            },
+        )
 
     # Start with Nmap results because they provide the richest context (ports,
     # services, hostnames, and OS detection).
@@ -1078,19 +1401,38 @@ def build_inventory(
                 | set(smrib_data.get("smrib_ports", []))
             )
 
-    domain_summaries: List[Mapping[str, object]] = []
+    domain_summaries: Dict[str, Dict[str, Any]] = {}
+
+    def _ensure_domain_summary(domain_lower: str) -> Dict[str, Any]:
+        return domain_summaries.setdefault(
+            domain_lower,
+            {
+                "domain": domain_lower,
+                "hosts": [],
+                "ips": [],
+                "host_records": [],
+                "sections": {},
+            },
+        )
 
     for domain_key in sorted(harv_map.keys()):
         result = harv_map[domain_key]
         domain_lower = result.domain.lower()
         domain_suffix = f".{domain_lower}"
 
+        summary = _ensure_domain_summary(domain_lower)
+
         host_records = [
             {"hostname": finding.hostname, "ip": finding.ip}
             for finding in result.findings
         ]
-        hostnames_for_domain = [record["hostname"] for record in host_records]
-        ips_for_domain = [record["ip"] for record in host_records if record["ip"]]
+        if host_records:
+            summary.setdefault("host_records", []).extend(host_records)
+
+        hostnames_for_domain = [record["hostname"] for record in host_records if record.get("hostname")]
+        ips_for_domain = [record["ip"] for record in host_records if record.get("ip")]
+
+        sections = summary.setdefault("sections", {})
         section_snapshot = {
             key: list(values)
             for key, values in result.sections.items()
@@ -1102,19 +1444,14 @@ def build_inventory(
             section_snapshot.setdefault("ips", [])
             section_snapshot["ips"].extend(ips_for_domain)
 
-        domain_summary = {
-            "domain": domain_lower,
-            "hosts": sorted({name for name in hostnames_for_domain if name}),
-            "ips": sorted({ip for ip in ips_for_domain if ip}),
-            "host_records": host_records,
-            "sections": {
-                key: sorted({value for value in values if value})
-                for key, values in section_snapshot.items()
-            },
-        }
+        summary.setdefault("hosts", []).extend(hostnames_for_domain)
+        summary.setdefault("ips", []).extend(ips_for_domain)
 
-        if domain_summary["hosts"] or domain_summary["ips"] or domain_summary["sections"]:
-            domain_summaries.append(domain_summary)
+        for key, values in section_snapshot.items():
+            bucket = sections.setdefault(key, [])
+            for value in values:
+                if value and value not in bucket:
+                    bucket.append(value)
 
         # Track every host already known in the consolidated inventory so their
         # records can be enriched with theHarvester context extracted for the
@@ -1168,6 +1505,75 @@ def build_inventory(
                     if value not in dest:
                         dest.append(value)
 
+    for domain_lower, info in dns_inv.items():
+        summary = _ensure_domain_summary(domain_lower)
+        enrichment = summary.setdefault("enrichment", {})
+        enrichment["dns_records"] = info
+        records = info.get("records")
+        if isinstance(records, Mapping):
+            for key in ("a", "aaaa"):
+                values = records.get(key)
+                if isinstance(values, list):
+                    for value in values:
+                        candidate = str(value).strip()
+                        if not candidate:
+                            continue
+                        summary.setdefault("ips", []).append(candidate)
+                        try:
+                            normalised = str(ipaddress.ip_address(candidate))
+                        except ValueError:
+                            continue
+                        host_entry = _ensure_host_entry(normalised)
+                        related = host_entry.setdefault("related_domains", [])
+                        if domain_lower not in related:
+                            related.append(domain_lower)
+
+    for domain_lower, info in banner_inv.items():
+        summary = _ensure_domain_summary(domain_lower)
+        enrichment = summary.setdefault("enrichment", {})
+        enrichment["banners"] = info
+
+    for domain_lower, info in whois_inv.items():
+        summary = _ensure_domain_summary(domain_lower)
+        enrichment = summary.setdefault("enrichment", {})
+        enrichment["whois"] = info
+
+    for domain_lower, info in ct_inv.items():
+        summary = _ensure_domain_summary(domain_lower)
+        enrichment = summary.setdefault("enrichment", {})
+        enrichment["certificate_transparency"] = info
+
+    for ip, info in shodan_inv.items():
+        host_entry = _ensure_host_entry(ip)
+        shodan_entry = host_entry.setdefault("shodan", {})
+        summary_data = info.get("summary")
+        if isinstance(summary_data, Mapping):
+            for key, value in summary_data.items():
+                if key == "ports" and isinstance(value, list):
+                    ports = {
+                        int(port)
+                        for port in value
+                        if isinstance(port, int) or (isinstance(port, str) and str(port).isdigit())
+                    }
+                    host_entry["open_ports"] = sorted(
+                        set(host_entry.get("open_ports", [])) | ports
+                    )
+                    shodan_entry[key] = sorted(ports)
+                elif key == "hostnames" and isinstance(value, list):
+                    hostnames = host_entry.setdefault("hostnames", [])
+                    for name in value:
+                        if isinstance(name, str) and name and name not in hostnames:
+                            hostnames.append(name)
+                    shodan_entry[key] = [str(name) for name in value if isinstance(name, str) and name]
+                else:
+                    shodan_entry[key] = value
+        error = info.get("error")
+        if isinstance(error, str) and error.strip():
+            shodan_entry["error"] = error.strip()
+        timestamp = info.get("timestamp")
+        if isinstance(timestamp, str) and timestamp.strip():
+            shodan_entry.setdefault("timestamp", timestamp.strip())
+
     for entry in inventory.values():
         entry["hostnames"] = sorted({name for name in entry.get("hostnames", []) if name})
         entry["related_domains"] = sorted(
@@ -1179,7 +1585,73 @@ def build_inventory(
                 if isinstance(values, list):
                     harv_data[key] = sorted({value for value in values if value})
 
-    return InventoryBundle(hosts=inventory, harvester_domains=domain_summaries)
+    domain_summary_list: List[Dict[str, Any]] = []
+    for domain_lower, summary in domain_summaries.items():
+        hosts_list = sorted({name for name in summary.get("hosts", []) if name})
+        ips_list = sorted({ip for ip in summary.get("ips", []) if ip})
+        summary["hosts"] = hosts_list
+        summary["ips"] = ips_list
+
+        raw_records = summary.get("host_records") or []
+        cleaned_records: List[Dict[str, Any]] = []
+        if isinstance(raw_records, list):
+            seen_pairs: Set[Tuple[Optional[str], Optional[str]]] = set()
+            for record in raw_records:
+                if not isinstance(record, Mapping):
+                    continue
+                hostname = record.get("hostname")
+                ip_value = record.get("ip")
+                key = (hostname, ip_value)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                cleaned_record: Dict[str, Any] = {}
+                if hostname:
+                    cleaned_record["hostname"] = hostname
+                if ip_value:
+                    cleaned_record["ip"] = ip_value
+                if cleaned_record:
+                    cleaned_records.append(cleaned_record)
+        if cleaned_records:
+            summary["host_records"] = cleaned_records
+        else:
+            summary.pop("host_records", None)
+
+        sections = summary.get("sections")
+        if isinstance(sections, dict):
+            cleaned_sections: Dict[str, List[str]] = {}
+            for key, values in sections.items():
+                if not isinstance(values, list):
+                    continue
+                cleaned_values = sorted({value for value in values if value})
+                if cleaned_values:
+                    cleaned_sections[key] = cleaned_values
+            summary["sections"] = cleaned_sections
+        else:
+            summary["sections"] = {}
+
+        enrichment = summary.get("enrichment")
+        if isinstance(enrichment, dict):
+            summary["enrichment"] = {
+                key: value
+                for key, value in enrichment.items()
+                if value is not None
+            }
+        else:
+            summary.pop("enrichment", None)
+
+        if (
+            hosts_list
+            or ips_list
+            or summary.get("sections")
+            or summary.get("host_records")
+            or summary.get("enrichment")
+        ):
+            domain_summary_list.append(summary)
+
+    domain_summary_list = sorted(domain_summary_list, key=lambda item: item.get("domain", ""))
+
+    return InventoryBundle(hosts=inventory, harvester_domains=domain_summary_list)
 
 
 def export_json(bundle: InventoryBundle, outpath: str) -> None:
@@ -1225,6 +1697,7 @@ def export_csv(bundle: InventoryBundle, outpath: str) -> None:
                 "services",
                 "related_domains",
                 "harvester_data",
+                "shodan_data",
             ]
         )
 
@@ -1303,6 +1776,14 @@ def export_csv(bundle: InventoryBundle, outpath: str) -> None:
                 except TypeError:
                     harvester_blob = str(harvester_data)
 
+            shodan_blob = ""
+            shodan_data = entry.get("shodan")
+            if shodan_data:
+                try:
+                    shodan_blob = json.dumps(shodan_data, sort_keys=True)
+                except TypeError:
+                    shodan_blob = str(shodan_data)
+
             writer.writerow(
                 [
                     ip,
@@ -1313,6 +1794,7 @@ def export_csv(bundle: InventoryBundle, outpath: str) -> None:
                     services,
                     related_domains,
                     harvester_blob,
+                    shodan_blob,
                 ]
             )
     ensure_path_owner(Path(outpath))
@@ -1323,7 +1805,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Merge Masscan, Nmap, and theHarvester outputs into JSON and CSV "
+            "Merge Masscan, Nmap, theHarvester, and enrichment outputs into JSON and CSV "
             "inventory files."
         )
     )
@@ -1345,6 +1827,31 @@ def main() -> None:
         help="Directory containing theHarvester text exports.",
     )
     parser.add_argument(
+        "--dns-dir",
+        default="out/dns",
+        help="Directory containing DNS enumeration JSON files.",
+    )
+    parser.add_argument(
+        "--banner-dir",
+        default="out/banners",
+        help="Directory containing banner grabbing JSON files.",
+    )
+    parser.add_argument(
+        "--whois-dir",
+        default="out/whois",
+        help="Directory containing WHOIS lookup JSON files.",
+    )
+    parser.add_argument(
+        "--ct-dir",
+        default="out/certificate_transparency",
+        help="Directory containing certificate transparency lookup JSON files.",
+    )
+    parser.add_argument(
+        "--shodan-dir",
+        default="out/shodan",
+        help="Directory containing Shodan lookup JSON files.",
+    )
+    parser.add_argument(
         "--out-json",
         default="out/report/inventory.json",
         help="Path for the merged JSON output.",
@@ -1362,6 +1869,11 @@ def main() -> None:
     nmap_results = parse_nmap_dir(args.nmap_dir)
     nikto_results = parse_nikto_dir(args.nikto_dir)
     harvester_results = parse_harvester_dir(args.harv_dir)
+    dns_results = parse_dns_dir(args.dns_dir)
+    banner_results = parse_banner_dir(args.banner_dir)
+    whois_results = parse_whois_dir(args.whois_dir)
+    ct_results = parse_ct_dir(args.ct_dir)
+    shodan_results = parse_shodan_dir(args.shodan_dir)
 
     bundle = build_inventory(
         nmap_results,
@@ -1369,6 +1881,11 @@ def main() -> None:
         masscan_results,
         smrib_results,
         harvester_results,
+        dns_results,
+        banner_results,
+        whois_results,
+        ct_results,
+        shodan_results,
     )
 
     json_parent = os.path.dirname(args.out_json)

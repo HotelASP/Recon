@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import http.client
 import io
 import ipaddress
 import json
@@ -35,6 +36,7 @@ import re
 import shlex
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -45,6 +47,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, TextIO, Tuple, Union
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote as urlquote
 from urllib.request import Request, urlopen
 
 from tools import aggregate
@@ -62,6 +65,11 @@ EYEWITNESS_DIR = OUT_DIR / "eyewitness"
 MASSCAN_DIR = OUT_DIR / "masscan"
 SMRIB_DIR = OUT_DIR / "smrib"
 REPORT_DIR = OUT_DIR / "report"
+DNS_ENUM_DIR = OUT_DIR / "dns"
+BANNER_DIR = OUT_DIR / "banners"
+WHOIS_DIR = OUT_DIR / "whois"
+CT_DIR = OUT_DIR / "certificate_transparency"
+SHODAN_DIR = OUT_DIR / "shodan"
 LOG_DIR = OUT_DIR / "log"
 MASSCAN_JSON = MASSCAN_DIR / "masscan.json"
 SMRIB_JSON = SMRIB_DIR / "smrib.json"
@@ -706,6 +714,51 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Enable or disable Nikto during stage 2 fingerprinting (default: true).",
     )
     parser.add_argument(
+        "--stage3-dns",
+        "-stage3-dns",
+        dest="stage3_dns",
+        type=_parse_boolean_option,
+        metavar="BOOL",
+        help="Enable or disable DNS enumeration during stage 3 (default: true).",
+    )
+    parser.add_argument(
+        "--stage3-banners",
+        "-stage3-banners",
+        dest="stage3_banners",
+        type=_parse_boolean_option,
+        metavar="BOOL",
+        help="Enable or disable banner grabbing during stage 3 (default: true).",
+    )
+    parser.add_argument(
+        "--stage3-whois",
+        "-stage3-whois",
+        dest="stage3_whois",
+        type=_parse_boolean_option,
+        metavar="BOOL",
+        help="Enable or disable WHOIS lookups during stage 3 (default: true).",
+    )
+    parser.add_argument(
+        "--stage3-ct",
+        "-stage3-ct",
+        dest="stage3_ct",
+        type=_parse_boolean_option,
+        metavar="BOOL",
+        help="Enable or disable certificate transparency lookups during stage 3 (default: true).",
+    )
+    parser.add_argument(
+        "--stage3-shodan",
+        "-stage3-shodan",
+        dest="stage3_shodan",
+        type=_parse_boolean_option,
+        metavar="BOOL",
+        help="Enable or disable Shodan lookups during stage 3 (default: true).",
+    )
+    parser.add_argument(
+        "--shodan-api-key",
+        default=os.environ.get("SHODAN_API_KEY"),
+        help="API key used for Shodan lookups during stage 3 (defaults to SHODAN_API_KEY env var).",
+    )
+    parser.add_argument(
         "--search-related-data",
         action="store_true",
         help=(
@@ -892,6 +945,17 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             args.stage2_use_nmap = True
         if args.stage2_use_nikto is None:
             args.stage2_use_nikto = True
+
+    if args.stage3_dns is None:
+        args.stage3_dns = True
+    if args.stage3_banners is None:
+        args.stage3_banners = True
+    if args.stage3_whois is None:
+        args.stage3_whois = True
+    if args.stage3_ct is None:
+        args.stage3_ct = True
+    if args.stage3_shodan is None:
+        args.stage3_shodan = True
 
     return args
 
@@ -1894,6 +1958,518 @@ def _resolve_related_targets(candidates: Iterable[str]) -> List[str]:
     return resolved
 
 
+def _safe_enrichment_name(label: str) -> str:
+    cleaned = re.sub(r"[^0-9A-Za-z_.-]", "_", str(label).strip())
+    return cleaned or "entry"
+
+
+def _write_enrichment_file(directory: Path, label: str, payload: Mapping[str, object]) -> None:
+    _ensure_directory(directory)
+    safe_name = _safe_enrichment_name(label)
+    path = directory / f"{safe_name}.json"
+    try:
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError as exc:
+        echo(f"[!] Failed to write enrichment file {path}: {exc}", essential=True)
+        return
+    ensure_path_owner(path)
+
+
+def _run_dns_command(cmd: Sequence[str]) -> Tuple[Optional[str], Optional[str]]:
+    try:
+        result = subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=20,
+        )
+        return result.stdout, None
+    except FileNotFoundError:
+        return None, "command not found"
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except subprocess.CalledProcessError as exc:
+        output = exc.stdout if exc.stdout else None
+        return output, f"exit code {exc.returncode}"
+
+
+def _parse_dig_output(output: str, record_type: str) -> List[str]:
+    results: List[str] = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(";"):
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        rtype = parts[3].upper()
+        if rtype != record_type.upper():
+            continue
+        data = " ".join(parts[4:])
+        if record_type.upper() in {"A", "AAAA"}:
+            data = parts[-1]
+        data = data.strip().strip('"')
+        if not data:
+            continue
+        if data not in results:
+            results.append(data)
+    return results
+
+
+def _socket_dns_lookup(domain: str, record_type: str) -> Tuple[List[str], Optional[str]]:
+    values: Set[str] = set()
+    try:
+        infos = socket.getaddrinfo(domain, None)
+    except socket.gaierror as exc:
+        return [], str(exc)
+    for info in infos:
+        sockaddr = info[4]
+        if not sockaddr:
+            continue
+        address = sockaddr[0]
+        try:
+            parsed = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if record_type.upper() == "A" and isinstance(parsed, ipaddress.IPv4Address):
+            values.add(str(parsed))
+        elif record_type.upper() == "AAAA" and isinstance(parsed, ipaddress.IPv6Address):
+            values.add(str(parsed))
+    return sorted(values), None
+
+
+def _lookup_dns_record(domain: str, record_type: str) -> Tuple[List[str], Optional[str], Optional[str]]:
+    errors: List[str] = []
+    dig_path = shutil.which("dig")
+    if dig_path:
+        output, error = _run_dns_command([dig_path, "+nocmd", domain, record_type, "+noall", "+answer"])
+        if output:
+            values = _parse_dig_output(output, record_type)
+            if values:
+                return values, "dig", None
+        if error:
+            errors.append(f"dig {record_type}: {error}")
+    else:
+        errors.append("dig not available")
+
+    if record_type.upper() in {"A", "AAAA"}:
+        values, socket_error = _socket_dns_lookup(domain, record_type)
+        if values:
+            return values, "socket", None
+        if socket_error:
+            errors.append(f"socket lookup failed: {socket_error}")
+
+    return [], None, ", ".join(errors) if errors else None
+
+
+def run_dns_enumeration(domains: Sequence[str]) -> Dict[str, Dict[str, object]]:
+    results: Dict[str, Dict[str, object]] = {}
+
+    if not domains:
+        return results
+
+    echo(f"[+] Stage 3 – enumerating DNS records for {len(domains)} domain(s)", essential=True)
+
+    for domain in domains:
+        domain = domain.strip()
+        if not domain:
+            continue
+        records: Dict[str, List[str]] = {}
+        resolvers: Set[str] = set()
+        errors: List[str] = []
+        for record_type in ("A", "AAAA", "MX", "NS", "TXT"):
+            values, resolver, error = _lookup_dns_record(domain, record_type)
+            if values:
+                records[record_type.lower()] = values
+            if resolver:
+                resolvers.add(resolver)
+            if error:
+                errors.append(f"{record_type}: {error}")
+
+        payload: Dict[str, object] = {
+            "domain": domain,
+            "records": records,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if resolvers:
+            payload["resolvers"] = sorted(resolvers)
+        if errors:
+            payload["errors"] = errors
+
+        _write_enrichment_file(DNS_ENUM_DIR, domain, payload)
+
+        results[domain.lower()] = payload
+
+    return results
+
+
+def _grab_http_banner(domain: str, port: int, use_ssl: bool) -> Mapping[str, object]:
+    protocol = "https" if use_ssl else "http"
+    headers: Dict[str, str] = {}
+    try:
+        if use_ssl:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            connection = http.client.HTTPSConnection(
+                domain,
+                port,
+                timeout=8,
+                context=context,
+            )
+        else:
+            connection = http.client.HTTPConnection(domain, port, timeout=8)
+        connection.request("HEAD", "/", headers={"User-Agent": "ReconWorkflow/1.0"})
+        response = connection.getresponse()
+        headers = {key: value for key, value in response.getheaders()}
+        banner = headers.get("Server") or headers.get("server")
+        return {
+            "port": port,
+            "protocol": protocol,
+            "status": response.status,
+            "reason": response.reason,
+            "server": banner,
+            "headers": headers,
+        }
+    except Exception as exc:  # pragma: no cover - best-effort network interaction
+        return {"port": port, "protocol": protocol, "error": str(exc)}
+    finally:
+        try:
+            connection.close()
+        except Exception:  # pragma: no cover - close best effort
+            pass
+
+
+def _grab_raw_banner(domain: str, port: int) -> Mapping[str, object]:
+    try:
+        with socket.create_connection((domain, port), timeout=8) as conn:
+            conn.settimeout(4)
+            if port in {80, 443}:
+                conn.sendall(b"HEAD / HTTP/1.0\r\nHost: %b\r\n\r\n" % domain.encode("utf-8", errors="ignore"))
+            data = conn.recv(200)
+    except Exception as exc:  # pragma: no cover - network operations
+        return {"port": port, "protocol": "tcp", "error": str(exc)}
+
+    banner = data.decode("utf-8", errors="replace").strip()
+    return {"port": port, "protocol": "tcp", "banner": banner}
+
+
+def run_banner_grabbing(domains: Sequence[str]) -> None:
+    if not domains:
+        return
+
+    echo(f"[+] Stage 3 – grabbing service banners for {len(domains)} domain(s)", essential=True)
+
+    for domain in domains:
+        domain = domain.strip()
+        if not domain:
+            continue
+        banners: List[Mapping[str, object]] = []
+        for port, use_ssl in ((80, False), (443, True)):
+            banners.append(_grab_http_banner(domain, port, use_ssl))
+        for raw_port in (22, 25):
+            banners.append(_grab_raw_banner(domain, raw_port))
+
+        payload = {
+            "domain": domain,
+            "banners": banners,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        _write_enrichment_file(BANNER_DIR, domain, payload)
+
+
+def _whois_query(server: str, query: str) -> Tuple[Optional[str], Optional[str]]:
+    try:
+        with socket.create_connection((server, 43), timeout=15) as conn:
+            conn.sendall(f"{query}\r\n".encode("utf-8"))
+            chunks: List[bytes] = []
+            while True:
+                data = conn.recv(4096)
+                if not data:
+                    break
+                chunks.append(data)
+    except OSError as exc:
+        return None, str(exc)
+
+    return b"".join(chunks).decode("utf-8", errors="replace"), None
+
+
+_WHOIS_FALLBACKS: Mapping[str, str] = {
+    "com": "whois.verisign-grs.com",
+    "net": "whois.verisign-grs.com",
+    "org": "whois.pir.org",
+    "io": "whois.nic.io",
+    "biz": "whois.biz",
+    "info": "whois.afilias.net",
+    "me": "whois.nic.me",
+}
+
+
+def _extract_whois_refer(text: str) -> Optional[str]:
+    for line in text.splitlines():
+        if line.lower().startswith("refer:"):
+            _, _, remainder = line.partition(":")
+            candidate = remainder.strip()
+            if candidate:
+                return candidate
+    return None
+
+
+_WHOIS_MULTI_KEYS = {"status", "name server", "nameserver", "nserver"}
+
+
+def _parse_whois_response(text: str) -> Mapping[str, object]:
+    parsed: Dict[str, object] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("%") or line.startswith("#"):
+            continue
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        if not key or not value:
+            continue
+        canonical = key.lower().replace(" ", "_")
+        if canonical in _WHOIS_MULTI_KEYS or key.lower() in _WHOIS_MULTI_KEYS:
+            bucket = parsed.setdefault(canonical, [])
+            if isinstance(bucket, list) and value not in bucket:
+                bucket.append(value)
+        else:
+            parsed[canonical] = value
+    return parsed
+
+
+def run_whois_lookups(domains: Sequence[str]) -> None:
+    if not domains:
+        return
+
+    echo(f"[+] Stage 3 – performing WHOIS lookups for {len(domains)} domain(s)", essential=True)
+
+    for domain in domains:
+        domain = domain.strip()
+        if not domain:
+            continue
+        payload: Dict[str, object] = {
+            "domain": domain,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        primary_text, primary_error = _whois_query("whois.iana.org", domain)
+        errors: List[str] = []
+        if primary_text:
+            payload["iana_response"] = primary_text
+            refer_server = _extract_whois_refer(primary_text)
+        else:
+            refer_server = None
+            if primary_error:
+                errors.append(f"iana: {primary_error}")
+
+        if not refer_server:
+            suffix = domain.rsplit(".", 1)[-1].lower() if "." in domain else domain.lower()
+            refer_server = _WHOIS_FALLBACKS.get(suffix)
+
+        if refer_server:
+            payload["whois_server"] = refer_server
+            response_text, lookup_error = _whois_query(refer_server, domain)
+            if response_text:
+                payload["raw_response"] = response_text
+                parsed = _parse_whois_response(response_text)
+                if parsed:
+                    payload["parsed"] = parsed
+            elif lookup_error:
+                errors.append(f"{refer_server}: {lookup_error}")
+        elif primary_text:
+            payload["raw_response"] = primary_text
+            parsed = _parse_whois_response(primary_text)
+            if parsed:
+                payload["parsed"] = parsed
+
+        if errors:
+            payload["errors"] = errors
+
+        _write_enrichment_file(WHOIS_DIR, domain, payload)
+
+
+def run_certificate_transparency(domains: Sequence[str]) -> None:
+    if not domains:
+        return
+
+    echo(
+        f"[+] Stage 3 – querying certificate transparency logs for {len(domains)} domain(s)",
+        essential=True,
+    )
+
+    for domain in domains:
+        domain = domain.strip()
+        if not domain:
+            continue
+        payload: Dict[str, object] = {
+            "domain": domain,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "crt.sh",
+        }
+        url = f"https://crt.sh/?q={urlquote(domain)}&output=json"
+        try:
+            request = Request(url, headers={"User-Agent": "ReconWorkflow/1.0"})
+            with urlopen(request, timeout=30) as response:
+                raw = response.read()
+        except (HTTPError, URLError, OSError) as exc:
+            payload["error"] = str(exc)
+            _write_enrichment_file(CT_DIR, domain, payload)
+            continue
+
+        try:
+            decoded = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            payload["error"] = f"decode error: {exc}"
+            _write_enrichment_file(CT_DIR, domain, payload)
+            continue
+
+        entries: List[Mapping[str, object]] = []
+        seen: Set[Tuple[object, object]] = set()
+        if isinstance(decoded, list):
+            for entry in decoded:
+                if not isinstance(entry, Mapping):
+                    continue
+                name_value = entry.get("name_value") or entry.get("common_name")
+                if not isinstance(name_value, str):
+                    continue
+                cleaned_name = name_value.strip()
+                if not cleaned_name:
+                    continue
+                key = (cleaned_name.lower(), entry.get("min_cert_id"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                entries.append(
+                    {
+                        "name": cleaned_name,
+                        "issuer": entry.get("issuer_name"),
+                        "not_before": entry.get("not_before"),
+                        "not_after": entry.get("not_after"),
+                        "entry_timestamp": entry.get("entry_timestamp"),
+                        "min_cert_id": entry.get("min_cert_id"),
+                    }
+                )
+                if len(entries) >= 50:
+                    break
+        payload["entries"] = entries
+        _write_enrichment_file(CT_DIR, domain, payload)
+
+
+def _collect_shodan_summary(data: Mapping[str, object]) -> Mapping[str, object]:
+    ports = []
+    raw_ports = data.get("ports")
+    if isinstance(raw_ports, list):
+        ports = sorted(
+            {
+                int(port)
+                for port in raw_ports
+                if isinstance(port, int) or (isinstance(port, str) and port.isdigit())
+            }
+        )
+
+    hostnames: List[str] = []
+    raw_hostnames = data.get("hostnames")
+    if isinstance(raw_hostnames, list):
+        hostnames = sorted(
+            {
+                str(host).strip()
+                for host in raw_hostnames
+                if isinstance(host, str) and host.strip()
+            }
+        )
+
+    vulns: List[str] = []
+    raw_vulns = data.get("vulns")
+    if isinstance(raw_vulns, Mapping):
+        vulns = sorted({str(key) for key in raw_vulns.keys() if key})
+
+    entries: List[Mapping[str, object]] = []
+    raw_data = data.get("data")
+    if isinstance(raw_data, list):
+        for item in raw_data[:10]:
+            if not isinstance(item, Mapping):
+                continue
+            entry: Dict[str, object] = {}
+            for key in ("port", "transport", "product", "version", "timestamp"):
+                value = item.get(key)
+                if value is not None:
+                    entry[key] = value
+            cpe = item.get("cpe")
+            if isinstance(cpe, list):
+                entry["cpe"] = [str(value) for value in cpe if value]
+            snippet = item.get("data")
+            if isinstance(snippet, str):
+                entry["data"] = snippet[:200]
+            if entry:
+                entries.append(entry)
+
+    summary: Dict[str, object] = {
+        "ip": data.get("ip_str") or data.get("ip") or data.get("ipv6") or data.get("ipv4"),
+        "ports": ports,
+        "hostnames": hostnames,
+        "org": data.get("org"),
+        "os": data.get("os"),
+        "isp": data.get("isp"),
+        "asn": data.get("asn"),
+        "city": data.get("city"),
+        "country": data.get("country_name") or data.get("country_code"),
+        "last_update": data.get("last_update"),
+        "tags": data.get("tags"),
+        "vulns": vulns,
+        "services": entries,
+    }
+    return summary
+
+
+def run_shodan_lookups(ips: Sequence[str], api_key: Optional[str]) -> None:
+    if not ips:
+        return
+    if not api_key:
+        echo("[!] Skipping Shodan lookups – API key not provided", essential=True)
+        return
+
+    echo(f"[+] Stage 3 – querying Shodan for {len(ips)} host(s)", essential=True)
+
+    for ip in ips:
+        payload: Dict[str, object] = {
+            "ip": ip,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        url = f"https://api.shodan.io/shodan/host/{urlquote(ip)}?key={urlquote(api_key)}"
+        try:
+            request = Request(url, headers={"User-Agent": "ReconWorkflow/1.0"})
+            with urlopen(request, timeout=30) as response:
+                raw = response.read()
+        except HTTPError as exc:
+            payload["error"] = f"HTTP {exc.code}: {exc.reason}"
+            _write_enrichment_file(SHODAN_DIR, ip, payload)
+            continue
+        except (URLError, OSError) as exc:
+            payload["error"] = str(exc)
+            _write_enrichment_file(SHODAN_DIR, ip, payload)
+            continue
+
+        try:
+            decoded = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            payload["error"] = f"decode error: {exc}"
+            _write_enrichment_file(SHODAN_DIR, ip, payload)
+            continue
+
+        if isinstance(decoded, Mapping):
+            payload["summary"] = _collect_shodan_summary(decoded)
+        else:
+            payload["error"] = "unexpected response format"
+
+        _write_enrichment_file(SHODAN_DIR, ip, payload)
+
+
 def aggregate_results() -> None:
     # Invoke the aggregation helper to merge outputs from every stage into the
     # consolidated inventory artefacts.
@@ -1911,6 +2487,16 @@ def aggregate_results() -> None:
         str(SMRIB_JSON),
         "--harv-dir",
         str(HARVESTER_DIR),
+        "--dns-dir",
+        str(DNS_ENUM_DIR),
+        "--banner-dir",
+        str(BANNER_DIR),
+        "--whois-dir",
+        str(WHOIS_DIR),
+        "--ct-dir",
+        str(CT_DIR),
+        "--shodan-dir",
+        str(SHODAN_DIR),
         "--out-json",
         str(INVENTORY_JSON),
         "--out-csv",
@@ -2035,6 +2621,55 @@ def display_inventory_contents() -> None:
                     continue
                 label = key.replace("_", " ").capitalize()
                 echo(f"        {label}: {', '.join(values)}", essential=True)
+        shodan_data = host.get("shodan")
+        if isinstance(shodan_data, Mapping) and shodan_data:
+            echo("      Shodan summary:", essential=True)
+            org = shodan_data.get("org") or shodan_data.get("isp")
+            if org:
+                echo(f"        Organisation: {org}", essential=True)
+            location_bits: List[str] = []
+            city = shodan_data.get("city")
+            if city:
+                location_bits.append(str(city))
+            country = shodan_data.get("country")
+            if country:
+                location_bits.append(str(country))
+            if location_bits:
+                echo(f"        Location: {', '.join(location_bits)}", essential=True)
+            ports = shodan_data.get("ports") or []
+            if ports:
+                echo(
+                    f"        Observed ports: {', '.join(str(port) for port in ports)}",
+                    essential=True,
+                )
+            tags = shodan_data.get("tags") or []
+            if tags:
+                echo(f"        Tags: {', '.join(tags)}", essential=True)
+            vulns = shodan_data.get("vulns") or []
+            if vulns:
+                echo(f"        Vulnerabilities: {', '.join(vulns)}", essential=True)
+            services = shodan_data.get("services") or []
+            if services:
+                echo("        Services:", essential=True)
+                for service in services[:5]:
+                    if not isinstance(service, Mapping):
+                        continue
+                    descriptor: List[str] = []
+                    port = service.get("port")
+                    if port is not None:
+                        descriptor.append(f"port {port}")
+                    product = service.get("product")
+                    if product:
+                        descriptor.append(str(product))
+                    version = service.get("version")
+                    if version:
+                        descriptor.append(str(version))
+                    summary_line = "          - " + " – ".join(descriptor) if descriptor else "          - Service"
+                    echo(summary_line, essential=True)
+                    snippet = service.get("data")
+                    if isinstance(snippet, str) and snippet.strip():
+                        preview = snippet.strip().splitlines()[0][:120]
+                        echo(f"            {preview}", essential=True)
         echo("", essential=True)
 
     if harvester_domains:
@@ -2058,6 +2693,64 @@ def display_inventory_contents() -> None:
                     if isinstance(values, list):
                         label = key.replace("_", " ").capitalize()
                         echo(f"      {label}: {', '.join(values)}", essential=True)
+            enrichment = summary.get("enrichment")
+            if isinstance(enrichment, Mapping) and enrichment:
+                echo("      Enrichment:", essential=True)
+                dns_info = enrichment.get("dns_records")
+                if isinstance(dns_info, Mapping):
+                    records = dns_info.get("records")
+                    if isinstance(records, Mapping):
+                        record_bits: List[str] = []
+                        for rtype, values in sorted(records.items()):
+                            if isinstance(values, list) and values:
+                                record_bits.append(f"{rtype.upper()}={', '.join(values[:5])}")
+                        if record_bits:
+                            echo(f"        DNS: {'; '.join(record_bits)}", essential=True)
+                banner_info = enrichment.get("banners")
+                if isinstance(banner_info, Mapping):
+                    banners = banner_info.get("banners")
+                    if isinstance(banners, list) and banners:
+                        samples: List[str] = []
+                        for entry in banners[:3]:
+                            if not isinstance(entry, Mapping):
+                                continue
+                            port = entry.get("port")
+                            proto = entry.get("protocol") or "tcp"
+                            server = entry.get("server") or entry.get("banner")
+                            status = entry.get("status")
+                            parts = [f"{port}/{proto}"] if port is not None else []
+                            if status:
+                                parts.append(str(status))
+                            if server:
+                                parts.append(str(server))
+                            if parts:
+                                samples.append(" ".join(parts))
+                        if samples:
+                            echo(f"        Banners: {'; '.join(samples)}", essential=True)
+                whois_info = enrichment.get("whois")
+                if isinstance(whois_info, Mapping):
+                    parsed = whois_info.get("parsed")
+                    if isinstance(parsed, Mapping):
+                        registrar = parsed.get("registrar")
+                        created = parsed.get("creation_date") or parsed.get("creation_date_utc")
+                        details: List[str] = []
+                        if registrar:
+                            details.append(f"Registrar {registrar}")
+                        if created:
+                            details.append(f"Created {created}")
+                        if details:
+                            echo(f"        WHOIS: {', '.join(details)}", essential=True)
+                ct_info = enrichment.get("certificate_transparency")
+                if isinstance(ct_info, Mapping):
+                    entries = ct_info.get("entries")
+                    if isinstance(entries, list) and entries:
+                        names = [
+                            entry.get("name")
+                            for entry in entries[:5]
+                            if isinstance(entry, Mapping) and entry.get("name")
+                        ]
+                        if names:
+                            echo(f"        Certificate names: {', '.join(names)}", essential=True)
             echo("", essential=True)
 
 
@@ -2423,6 +3116,54 @@ def write_report(
                         continue
                     label = key.replace("_", " ").capitalize()
                     lines.append(f"    - {label}: {', '.join(values)}")
+            shodan_data = entry.get("shodan")
+            if isinstance(shodan_data, Mapping) and shodan_data:
+                shodan_bits: List[str] = []
+                org = shodan_data.get("org") or shodan_data.get("isp")
+                if org:
+                    shodan_bits.append(f"Organisation {org}")
+                location_pieces: List[str] = []
+                city = shodan_data.get("city")
+                if city:
+                    location_pieces.append(str(city))
+                country = shodan_data.get("country")
+                if country:
+                    location_pieces.append(str(country))
+                if location_pieces:
+                    shodan_bits.append(f"Location {'/'.join(location_pieces)}")
+                ports = shodan_data.get("ports") or []
+                if ports:
+                    shodan_bits.append(f"Ports {', '.join(str(port) for port in ports)}")
+                tags = shodan_data.get("tags") or []
+                if tags:
+                    shodan_bits.append(f"Tags {', '.join(tags)}")
+                vulns = shodan_data.get("vulns") or []
+                if vulns:
+                    shodan_bits.append(f"Vulnerabilities {', '.join(vulns)}")
+                services = shodan_data.get("services") or []
+                if services:
+                    for service in services[:5]:
+                        if not isinstance(service, Mapping):
+                            continue
+                        descriptor: List[str] = []
+                        port = service.get("port")
+                        if port is not None:
+                            descriptor.append(f"port {port}")
+                        product = service.get("product")
+                        if product:
+                            descriptor.append(str(product))
+                        version = service.get("version")
+                        if version:
+                            descriptor.append(str(version))
+                        snippet = service.get("data")
+                        if isinstance(snippet, str) and snippet.strip():
+                            descriptor.append(snippet.strip().splitlines()[0][:80])
+                        if descriptor:
+                            shodan_bits.append(f"Service {' – '.join(descriptor)}")
+                if shodan_bits:
+                    lines.append("- **Shodan summary**:")
+                    for item in shodan_bits:
+                        lines.append(f"    - {item}")
 
             lines.append("")
     else:
@@ -2472,6 +3213,63 @@ def write_report(
                         continue
                     label = key.replace("_", " ").capitalize()
                     lines.append(f"- **{label}**: {', '.join(values)}")
+            enrichment = summary.get("enrichment")
+            if isinstance(enrichment, Mapping) and enrichment:
+                dns_info = enrichment.get("dns_records")
+                if isinstance(dns_info, Mapping):
+                    records = dns_info.get("records")
+                    if isinstance(records, Mapping):
+                        record_bits: List[str] = []
+                        for rtype, values in sorted(records.items()):
+                            if isinstance(values, list) and values:
+                                record_bits.append(f"{rtype.upper()}={', '.join(values[:5])}")
+                        if record_bits:
+                            lines.append(f"- **DNS**: {'; '.join(record_bits)}")
+                banner_info = enrichment.get("banners")
+                if isinstance(banner_info, Mapping):
+                    banners = banner_info.get("banners")
+                    if isinstance(banners, list) and banners:
+                        samples: List[str] = []
+                        for entry in banners[:3]:
+                            if not isinstance(entry, Mapping):
+                                continue
+                            port = entry.get("port")
+                            proto = entry.get("protocol") or "tcp"
+                            server = entry.get("server") or entry.get("banner")
+                            status = entry.get("status")
+                            parts = [f"{port}/{proto}"] if port is not None else []
+                            if status:
+                                parts.append(str(status))
+                            if server:
+                                parts.append(str(server))
+                            if parts:
+                                samples.append(" ".join(parts))
+                        if samples:
+                            lines.append(f"- **Banners**: {'; '.join(samples)}")
+                whois_info = enrichment.get("whois")
+                if isinstance(whois_info, Mapping):
+                    parsed = whois_info.get("parsed")
+                    if isinstance(parsed, Mapping):
+                        registrar = parsed.get("registrar")
+                        created = parsed.get("creation_date") or parsed.get("creation_date_utc")
+                        details: List[str] = []
+                        if registrar:
+                            details.append(f"Registrar {registrar}")
+                        if created:
+                            details.append(f"Created {created}")
+                        if details:
+                            lines.append(f"- **WHOIS**: {', '.join(details)}")
+                ct_info = enrichment.get("certificate_transparency")
+                if isinstance(ct_info, Mapping):
+                    entries = ct_info.get("entries")
+                    if isinstance(entries, list) and entries:
+                        names = [
+                            entry.get("name")
+                            for entry in entries[:5]
+                            if isinstance(entry, Mapping) and entry.get("name")
+                        ]
+                        if names:
+                            lines.append(f"- **Certificate names**: {', '.join(names)}")
             lines.append("")
 
     lines.append("")
@@ -2725,8 +3523,29 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         domains = set()
     all_domains: Set[str] = set(domains)
 
+    stage_three_tools: List[str] = ["theHarvester"]
+    if args.stage3_dns:
+        stage_three_tools.append("DNS enumeration")
+    if args.stage3_banners:
+        stage_three_tools.append("banner grabbing")
+    if args.stage3_whois:
+        stage_three_tools.append("WHOIS")
+    if args.stage3_ct:
+        stage_three_tools.append("certificate transparency lookups")
+    if args.stage3_shodan and args.shodan_api_key:
+        stage_three_tools.append("Shodan")
+    elif args.stage3_shodan:
+        stage_three_tools.append("Shodan (pending API key)")
+
+    if not stage_three_tools:
+        tools_phrase = "OSINT enrichment"
+    elif len(stage_three_tools) == 1:
+        tools_phrase = stage_three_tools[0]
+    else:
+        tools_phrase = ", ".join(stage_three_tools[:-1]) + f" and {stage_three_tools[-1]}"
+
     stage_three_summary = (
-        "Gathering OSINT with theHarvester for "
+        f"Gathering OSINT with {tools_phrase} for "
         f"{len(domains)} domain(s) linked to discovered assets."
     )
     echo_stage(3, "OSINT enrichment", summary=stage_three_summary)
@@ -2905,6 +3724,87 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
             if not pending_domains:
                 echo("[+] No additional domains discovered via OSINT – ending iterative search.", essential=True)
+
+    enrichment_domains = {
+        domain
+        for domain in all_domains
+        if isinstance(domain, str) and domain.strip()
+    }
+    if not enrichment_domains:
+        enrichment_domains = {
+            domain for domain in domains if isinstance(domain, str) and domain.strip()
+        }
+
+    enrichment_domain_list = sorted(enrichment_domains)
+
+    dns_payloads: Dict[str, Dict[str, object]] = {}
+    if args.stage3_dns:
+        if enrichment_domain_list:
+            dns_payloads = run_dns_enumeration(enrichment_domain_list)
+        else:
+            echo(
+                "[!] Stage 3 – DNS enumeration skipped because no domains were available.",
+                essential=True,
+            )
+
+    if args.stage3_banners:
+        if enrichment_domain_list:
+            run_banner_grabbing(enrichment_domain_list)
+        else:
+            echo(
+                "[!] Stage 3 – banner grabbing skipped because no domains were available.",
+                essential=True,
+            )
+
+    if args.stage3_whois:
+        whois_targets = {
+            _registered_domain(domain) or domain
+            for domain in enrichment_domain_list
+            if domain
+        }
+        whois_list = sorted({item for item in whois_targets if item})
+        if whois_list:
+            run_whois_lookups(whois_list)
+        else:
+            echo(
+                "[!] Stage 3 – WHOIS lookups skipped because no registrable domains were identified.",
+                essential=True,
+            )
+
+    if args.stage3_ct:
+        ct_targets = {
+            _registered_domain(domain) or domain
+            for domain in enrichment_domain_list
+            if domain
+        }
+        ct_list = sorted({item for item in ct_targets if item})
+        if ct_list:
+            run_certificate_transparency(ct_list)
+        else:
+            echo(
+                "[!] Stage 3 – certificate transparency lookups skipped because no registrable domains were identified.",
+                essential=True,
+            )
+
+    if args.stage3_shodan:
+        shodan_candidates: Set[str] = set()
+        for label in discovered_hosts:
+            ip_normalised = _normalise_ip(label)
+            if ip_normalised:
+                shodan_candidates.add(ip_normalised)
+        shodan_candidates.update(ip_host_assignments.keys())
+        for payload in dns_payloads.values():
+            records = payload.get("records")
+            if isinstance(records, Mapping):
+                for key in ("a", "aaaa"):
+                    values = records.get(key)
+                    if isinstance(values, list):
+                        for value in values:
+                            ip_normalised = _normalise_ip(value)
+                            if ip_normalised:
+                                shodan_candidates.add(ip_normalised)
+
+        run_shodan_lookups(sorted(shodan_candidates), args.shodan_api_key)
 
     export_not_processed_targets(not_processed_related)
 
