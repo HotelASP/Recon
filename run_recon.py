@@ -92,6 +92,12 @@ SCANNER_REPO_URLS = (
 )
 DEFAULT_SMRIB_PATH = str(SCANNER_DIR / "smrib.py")
 
+# Essential TCP ports that should always be considered during discovery even
+# when relying on "top N" presets. Some curated lists omit widely used
+# services, so we explicitly probe these ports to avoid missing common web
+# interfaces during quick scans.
+ESSENTIAL_TCP_PORTS: Tuple[int, ...] = (80, 443)
+
 
 TOOL_SUMMARIES = {
     "Masscan": (
@@ -1043,6 +1049,8 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
     if args.port_range and explicit_top_ports:
         raise SystemExit("Specify either --top-ports or --port-range, not both.")
 
+    forced_ports: Optional[List[int]] = None
+
     if args.port_range:
         if not re.fullmatch(r"[0-9,-]+", args.port_range):
             raise SystemExit("--port-range must contain only digits, commas, and hyphens")
@@ -1056,12 +1064,13 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
         masscan_args = ["--top-ports", value]
         nmap_args = ["--top-ports", value]
         smrib_args = ["--top-ports", value]
+        forced_ports = list(ESSENTIAL_TCP_PORTS)
     else:
         description = "ports 1-65535"
         masscan_args = ["-p", "1-65535"]
         nmap_args = ["-p", "1-65535"]
         smrib_args = ["--ports", "1-65535"]
-    return PortSelection(description, masscan_args, nmap_args, smrib_args)
+    return PortSelection(description, masscan_args, nmap_args, smrib_args, forced_ports=forced_ports)
 
 
 def build_nmap_tuning_args(args: argparse.Namespace) -> List[str]:
@@ -1404,6 +1413,56 @@ def run_masscan(
     return {ip: set(data.get("masscan_ports", [])) for ip, data in results.items()}
 
 
+def _probe_essential_ports(
+    targets: Sequence[str],
+    ports: Sequence[int],
+    *,
+    timeout: float = 0.5,
+) -> Dict[str, Set[int]]:
+    # Perform lightweight TCP connect probes for critical ports that might be
+    # missing from curated "top" lists. Results are keyed by IP address so they
+    # integrate with other discovery artefacts.
+
+    unique_ports = sorted({int(port) for port in ports if 1 <= int(port) <= 65535})
+    if not unique_ports:
+        return {}
+
+    discovered: Dict[str, Set[int]] = {}
+
+    for raw_target in targets:
+        host = raw_target.strip()
+        if not host:
+            continue
+
+        candidates: List[str] = []
+        ip_direct = _normalise_ip(host)
+        if ip_direct and ":" not in ip_direct:
+            candidates.append(ip_direct)
+        else:
+            try:
+                info_list = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+            except socket.gaierror:
+                info_list = []
+            for family, _, _, _, sockaddr in info_list:
+                if family != socket.AF_INET:
+                    continue
+                address = sockaddr[0]
+                if address not in candidates:
+                    candidates.append(address)
+
+        for address in candidates:
+            for port in unique_ports:
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                        sock.settimeout(timeout)
+                        sock.connect((address, port))
+                    discovered.setdefault(address, set()).add(port)
+                except OSError:
+                    continue
+
+    return discovered
+
+
 def run_smrib(
     targets: Sequence[str],
     port_selection: PortSelection,
@@ -1437,7 +1496,20 @@ def run_smrib(
         return {}
 
     results = aggregate.parse_smrib_json(str(SMRIB_JSON))
-    return {ip: set(data.get("smrib_ports", [])) for ip, data in results.items()}
+    discovered = {ip: set(data.get("smrib_ports", [])) for ip, data in results.items()}
+
+    if port_selection.forced_ports and "--ports" not in port_selection.smrib_args:
+        supplemental = _probe_essential_ports(targets, port_selection.forced_ports)
+        if supplemental:
+            for ip, ports in supplemental.items():
+                discovered.setdefault(ip, set()).update(ports)
+            additional_ports = sum(len(ports) for ports in supplemental.values())
+            echo(
+                f"[+] Stage 1 – confirmed {additional_ports} essential port(s) via direct TCP probes.",
+                essential=True,
+            )
+
+    return discovered
 
 
 def run_nmap_discovery(
@@ -2180,136 +2252,414 @@ def _summarise_harvester_domain(
     return summary
 
 
-def run_mac_address_search() -> None:
-    if not HARVESTER_DIR.is_dir():
-        echo(
-            "[!] Stage 3 – MAC address enrichment skipped because no theHarvester artefacts were generated.",
-            essential=True,
+def _prime_neighbor_cache(ip: str) -> None:
+    try:
+        subprocess.run(
+            ["ping", "-c", "1", "-W", "1", ip],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=3,
         )
-        return
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
 
-    echo("[+] Stage 3 – scanning OSINT artefacts for MAC addresses", essential=True)
 
-    vendor_map = _load_mac_vendor_mapping()
-    harvester_results = aggregate.parse_harvester_dir(str(HARVESTER_DIR))
-    harvester_context: Dict[str, Mapping[str, object]] = {
-        domain.lower(): _summarise_harvester_domain(result)
-        for domain, result in harvester_results.items()
-        if isinstance(domain, str)
-    }
+def _capture_command_output(cmd: Sequence[str]) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
 
-    domains_with_hits = 0
-    unique_addresses = 0
+    output = result.stdout.strip()
+    if output:
+        return output
+    return result.stderr.strip() or None
+
+
+def _gather_local_mac_occurrences(ip: str) -> List[Dict[str, str]]:
+    _prime_neighbor_cache(ip)
+
+    occurrences: List[Dict[str, str]] = []
+    seen: Set[Tuple[str, str, str]] = set()
+
+    commands = (
+        ("ip-neigh", ["ip", "neigh", "show", ip]),
+        ("arp", ["arp", "-n", ip]),
+    )
+
+    for method, cmd in commands:
+        output = _capture_command_output(cmd)
+        if not output:
+            continue
+        for raw_line in output.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            match = None
+            for pattern in _MAC_CANDIDATE_PATTERNS:
+                match = pattern.search(line)
+                if match:
+                    break
+            if not match:
+                continue
+            mac_value = match.group(0)
+            key = (method, line, mac_value)
+            if key in seen:
+                continue
+            seen.add(key)
+            occurrences.append(
+                {
+                    "mac": mac_value,
+                    "method": method,
+                    "command": " ".join(cmd),
+                    "output": line,
+                }
+            )
+
+    return occurrences
+
+
+def _merge_mac_entries(
+    existing_entries: Optional[Sequence[Mapping[str, object]]],
+    new_entries: Sequence[Mapping[str, object]],
+) -> List[Dict[str, object]]:
+    merged: Dict[str, Dict[str, object]] = {}
+
+    if existing_entries:
+        for entry in existing_entries:
+            if not isinstance(entry, Mapping):
+                continue
+            address = entry.get("address")
+            if not isinstance(address, str):
+                continue
+            occurrences = entry.get("occurrences")
+            merged[address] = {
+                "address": address,
+                "vendor": entry.get("vendor"),
+                "occurrences": list(occurrences) if isinstance(occurrences, list) else [],
+            }
+
+    for entry in new_entries:
+        if not isinstance(entry, Mapping):
+            continue
+        address = entry.get("address")
+        if not isinstance(address, str):
+            continue
+        merged_entry = merged.setdefault(
+            address,
+            {
+                "address": address,
+                "vendor": entry.get("vendor"),
+                "occurrences": [],
+            },
+        )
+        if not merged_entry.get("vendor") and entry.get("vendor"):
+            merged_entry["vendor"] = entry.get("vendor")
+        new_occurrences = entry.get("occurrences")
+        if isinstance(new_occurrences, list):
+            existing = merged_entry.setdefault("occurrences", [])
+            for occurrence in new_occurrences:
+                if occurrence not in existing:
+                    existing.append(occurrence)
+
+    return sorted(merged.values(), key=lambda item: item.get("address", ""))
+
+
+def _collect_local_mac_addresses(
+    discovered_hosts: Optional[Mapping[str, Set[int]]],
+    vendor_map: Mapping[str, str],
+) -> Tuple[int, Set[str], int, bool]:
+    if not discovered_hosts:
+        return 0, set(), 0, False
+
+    entries_written = 0
+    unique_addresses: Set[str] = set()
     total_occurrences = 0
+    attempted = False
 
-    for candidate in sorted(HARVESTER_DIR.iterdir()):
-        if candidate.is_dir():
+    for label, ports in sorted(discovered_hosts.items(), key=lambda item: item[0]):
+        ip_normalised = _normalise_ip(label)
+        if not ip_normalised:
             continue
         try:
-            raw_text = candidate.read_text(encoding="utf-8", errors="ignore")
-        except OSError as exc:
-            echo(f"[!] Unable to read {candidate}: {exc}", essential=True)
+            ip_obj = ipaddress.ip_address(ip_normalised)
+        except ValueError:
+            continue
+        if ip_obj.version != 4:
+            continue
+        if not (ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local):
             continue
 
-        try:
-            payload = json.loads(raw_text)
-        except json.JSONDecodeError:
-            payload = None
-
-        domain_hint = candidate.stem
-        if isinstance(payload, (Mapping, list)):
-            domain_value = _resolve_domain_from_harvester_content(payload, domain_hint)
-        else:
-            domain_value = domain_hint
-
-        domain_clean = (domain_value or domain_hint or "").strip()
-        if not domain_clean:
-            domain_clean = domain_hint or "entry"
-        domain_lower = domain_clean.lower()
-
-        contexts = []
-        if isinstance(payload, (Mapping, list)):
-            contexts.extend(_extract_mac_candidates_from_json(payload))
-        contexts.extend(_extract_mac_candidates_from_text(raw_text))
+        attempted = True
+        occurrences = _gather_local_mac_occurrences(ip_normalised)
+        if not occurrences:
+            continue
 
         aggregated: Dict[str, Dict[str, object]] = {}
-        seen_occurrences: Set[Tuple[object, ...]] = set()
+        seen_occurrences: Set[Tuple[str, str, str]] = set()
 
-        for raw_value, context in contexts:
-            normalised = _normalise_mac_address(raw_value)
-            if not normalised:
+        for occ in occurrences:
+            mac_norm = _normalise_mac_address(occ.get("mac", ""))
+            if not mac_norm:
                 continue
 
             mac_entry = aggregated.setdefault(
-                normalised,
+                mac_norm,
                 {
-                    "address": normalised,
-                    "vendor": _lookup_mac_vendor(normalised, vendor_map),
+                    "address": mac_norm,
+                    "vendor": _lookup_mac_vendor(mac_norm, vendor_map),
                     "occurrences": [],
                 },
             )
 
-            try:
-                relative_path = candidate.relative_to(ROOT)
-            except ValueError:
-                relative_path = candidate
-
-            occurrence: Dict[str, object] = {
-                "source": "harvester",
-                "file": str(relative_path),
-                "match": context.get("match") or raw_value,
+            occurrence_payload = {
+                "source": "local-network",
+                "ip": ip_normalised,
+                "method": occ.get("method"),
+                "command": occ.get("command"),
+                "output": occ.get("output"),
             }
 
-            if "path" in context:
-                occurrence["path"] = context["path"]
-            if "value" in context:
-                occurrence["value"] = context["value"]
-            if "line" in context:
-                occurrence["line"] = context["line"]
-            if "lineno" in context:
-                occurrence["lineno"] = context["lineno"]
-
-            occurrence_key = (
-                occurrence.get("file"),
-                occurrence.get("path"),
-                occurrence.get("lineno"),
-                occurrence.get("line"),
-                occurrence.get("match"),
+            key = (
+                mac_norm,
+                occurrence_payload.get("method"),
+                occurrence_payload.get("output"),
             )
-            if occurrence_key in seen_occurrences:
+            if key in seen_occurrences:
                 continue
-            seen_occurrences.add(occurrence_key)
-            mac_entry.setdefault("occurrences", []).append(occurrence)
+            seen_occurrences.add(key)
+            mac_entry.setdefault("occurrences", []).append(occurrence_payload)
 
         if not aggregated:
             continue
 
         mac_entries = sorted(aggregated.values(), key=lambda item: item.get("address", ""))
+
+        local_context: Dict[str, object] = {"ip": ip_normalised}
+        if label != ip_normalised:
+            local_context["label"] = label
+        if ports:
+            local_context["ports"] = sorted({int(port) for port in ports if isinstance(port, int)})
+
         payload_out: Dict[str, object] = {
-            "domain": domain_clean,
+            "domain": ip_normalised,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "mac_addresses": mac_entries,
+            "context": {"local_network": local_context},
         }
 
-        context_snapshot = harvester_context.get(domain_lower)
-        if context_snapshot:
-            payload_out["context"] = context_snapshot
+        safe_name = _safe_enrichment_name(ip_normalised)
+        path = MAC_DIR / f"{safe_name}.json"
+        existing_payload: Optional[Mapping[str, object]] = None
+        if path.exists():
+            try:
+                existing_payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing_payload = None
 
-        _write_enrichment_file(MAC_DIR, domain_clean, payload_out)
+        if isinstance(existing_payload, Mapping):
+            existing_entries = existing_payload.get("mac_addresses")
+            payload_out["mac_addresses"] = _merge_mac_entries(existing_entries, mac_entries)
 
-        domains_with_hits += 1
-        unique_addresses += len(mac_entries)
-        total_occurrences += sum(len(entry.get("occurrences", [])) for entry in mac_entries)
+            existing_context = existing_payload.get("context")
+            new_context = payload_out.get("context")
+            merged_context: Dict[str, object] = {}
+            if isinstance(existing_context, Mapping):
+                merged_context.update(existing_context)
+            if isinstance(new_context, Mapping):
+                for key, value in new_context.items():
+                    merged_context[key] = value
+            if merged_context:
+                payload_out["context"] = merged_context
 
-    if domains_with_hits:
+        _write_enrichment_file(MAC_DIR, ip_normalised, payload_out)
+
+        entries_written += 1
+        for entry in payload_out.get("mac_addresses", []):
+            if not isinstance(entry, Mapping):
+                continue
+            address = entry.get("address")
+            if isinstance(address, str):
+                unique_addresses.add(address)
+            occurrences_list = entry.get("occurrences")
+            if isinstance(occurrences_list, list):
+                total_occurrences += len(occurrences_list)
+
+    return entries_written, unique_addresses, total_occurrences, attempted
+
+
+def run_mac_address_search(
+    discovered_hosts: Optional[Mapping[str, Set[int]]] = None,
+) -> None:
+    vendor_map = _load_mac_vendor_mapping()
+
+    total_entries = 0
+    unique_addresses: Set[str] = set()
+    total_occurrences = 0
+
+    if HARVESTER_DIR.is_dir():
+        echo("[+] Stage 3 – scanning OSINT artefacts for MAC addresses", essential=True)
+
+        harvester_results = aggregate.parse_harvester_dir(str(HARVESTER_DIR))
+        harvester_context: Dict[str, Mapping[str, object]] = {
+            domain.lower(): _summarise_harvester_domain(result)
+            for domain, result in harvester_results.items()
+            if isinstance(domain, str)
+        }
+
+        harvester_hits = 0
+
+        for candidate in sorted(HARVESTER_DIR.iterdir()):
+            if candidate.is_dir():
+                continue
+            try:
+                raw_text = candidate.read_text(encoding="utf-8", errors="ignore")
+            except OSError as exc:
+                echo(f"[!] Unable to read {candidate}: {exc}", essential=True)
+                continue
+
+            try:
+                payload = json.loads(raw_text)
+            except json.JSONDecodeError:
+                payload = None
+
+            domain_hint = candidate.stem
+            if isinstance(payload, (Mapping, list)):
+                domain_value = _resolve_domain_from_harvester_content(payload, domain_hint)
+            else:
+                domain_value = domain_hint
+
+            domain_clean = (domain_value or domain_hint or "").strip()
+            if not domain_clean:
+                domain_clean = domain_hint or "entry"
+            domain_lower = domain_clean.lower()
+
+            contexts = []
+            if isinstance(payload, (Mapping, list)):
+                contexts.extend(_extract_mac_candidates_from_json(payload))
+            contexts.extend(_extract_mac_candidates_from_text(raw_text))
+
+            aggregated: Dict[str, Dict[str, object]] = {}
+            seen_occurrences: Set[Tuple[object, ...]] = set()
+
+            for raw_value, context in contexts:
+                normalised = _normalise_mac_address(raw_value)
+                if not normalised:
+                    continue
+
+                mac_entry = aggregated.setdefault(
+                    normalised,
+                    {
+                        "address": normalised,
+                        "vendor": _lookup_mac_vendor(normalised, vendor_map),
+                        "occurrences": [],
+                    },
+                )
+
+                try:
+                    relative_path = candidate.relative_to(ROOT)
+                except ValueError:
+                    relative_path = candidate
+
+                occurrence: Dict[str, object] = {
+                    "source": "harvester",
+                    "file": str(relative_path),
+                    "match": context.get("match") or raw_value,
+                }
+
+                if "path" in context:
+                    occurrence["path"] = context["path"]
+                if "value" in context:
+                    occurrence["value"] = context["value"]
+                if "line" in context:
+                    occurrence["line"] = context["line"]
+                if "lineno" in context:
+                    occurrence["lineno"] = context["lineno"]
+
+                occurrence_key = (
+                    occurrence.get("file"),
+                    occurrence.get("path"),
+                    occurrence.get("lineno"),
+                    occurrence.get("line"),
+                    occurrence.get("match"),
+                )
+                if occurrence_key in seen_occurrences:
+                    continue
+                seen_occurrences.add(occurrence_key)
+                mac_entry.setdefault("occurrences", []).append(occurrence)
+
+            if not aggregated:
+                continue
+
+            mac_entries = sorted(aggregated.values(), key=lambda item: item.get("address", ""))
+            payload_out: Dict[str, object] = {
+                "domain": domain_clean,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "mac_addresses": mac_entries,
+            }
+
+            context_snapshot = harvester_context.get(domain_lower)
+            if context_snapshot:
+                payload_out["context"] = context_snapshot
+
+            _write_enrichment_file(MAC_DIR, domain_clean, payload_out)
+
+            harvester_hits += 1
+            total_entries += 1
+            for entry in mac_entries:
+                address = entry.get("address")
+                if isinstance(address, str):
+                    unique_addresses.add(address)
+                occurrences_list = entry.get("occurrences")
+                if isinstance(occurrences_list, list):
+                    total_occurrences += len(occurrences_list)
+
+        if not harvester_hits:
+            echo("[!] Stage 3 – no MAC addresses found in theHarvester artefacts.", essential=True)
+    else:
+        echo(
+            "[!] Stage 3 – MAC address enrichment – theHarvester artefacts were not generated; skipping OSINT-based search.",
+            essential=True,
+        )
+
+    entries, addresses, occurrences, attempted_local = _collect_local_mac_addresses(
+        discovered_hosts,
+        vendor_map,
+    )
+    if entries:
+        total_entries += entries
+        unique_addresses.update(addresses)
+        total_occurrences += occurrences
+    elif attempted_local:
+        echo(
+            "[!] Stage 3 – no MAC addresses discovered via local network probing.",
+            essential=True,
+        )
+
+    if total_entries:
         ensure_tree_owner(MAC_DIR)
         message = (
-            f"[+] Stage 3 – recorded {unique_addresses} unique MAC address(es) across "
-            f"{domains_with_hits} domain artefact(s) ({total_occurrences} evidence entries)"
+            f"[+] Stage 3 – recorded {len(unique_addresses)} unique MAC address(es) across "
+            f"{total_entries} enrichment artefact(s) ({total_occurrences} evidence entries)"
         )
         echo(message, essential=True)
+    elif not HARVESTER_DIR.is_dir() and not attempted_local:
+        echo(
+            "[!] Stage 3 – MAC address enrichment skipped because no eligible data sources were available.",
+            essential=True,
+        )
     else:
-        echo("[!] Stage 3 – no MAC addresses found in theHarvester artefacts.", essential=True)
+        echo(
+            "[!] Stage 3 – no MAC addresses found in the available artefacts.",
+            essential=True,
+        )
 
 
 def _run_dns_command(cmd: Sequence[str]) -> Tuple[Optional[str], Optional[str]]:
@@ -4193,7 +4543,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         run_shodan_lookups(sorted(shodan_candidates), args.shodan_api_key)
 
     if args.stage3_mac:
-        run_mac_address_search()
+        run_mac_address_search(discovered_hosts)
 
     export_not_processed_targets(not_processed_related)
 
