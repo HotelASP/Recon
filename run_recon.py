@@ -746,21 +746,29 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Enable or disable Shodan lookups during stage 3 (default: true).",
     )
     parser.add_argument(
-        "--shodan-api-key",
-        default=os.environ.get("SHODAN_API_KEY"),
-        help="API key used for Shodan lookups during stage 3 (defaults to SHODAN_API_KEY env var).",
-    )
-    parser.add_argument(
-        "--search-mac",
+        "--stage3-mac",
+        "-stage3-mac",
         "--stage3-search-mac",
-        dest="stage3_search_mac",
+        "--search-mac",
+        dest="stage3_mac",
         nargs="?",
         const="true",
         type=_parse_boolean_option,
         metavar="BOOL",
-        help=(
-            "Enable or disable MAC address enrichment during stage 3 (default: true)."
-        ),
+        help="Enable or disable MAC address enrichment during stage 3 (default: true).",
+    )
+    parser.add_argument(
+        "--stage3-harvester",
+        "-stage3-harvester",
+        dest="stage3_harvester",
+        type=_parse_boolean_option,
+        metavar="BOOL",
+        help="Enable or disable theHarvester during stage 3 (default: true).",
+    )
+    parser.add_argument(
+        "--shodan-api-key",
+        default=os.environ.get("SHODAN_API_KEY"),
+        help="API key used for Shodan lookups during stage 3 (defaults to SHODAN_API_KEY env var).",
     )
     parser.add_argument(
         "--search-related-data",
@@ -960,8 +968,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         args.stage3_ct = True
     if args.stage3_shodan is None:
         args.stage3_shodan = True
-    if args.stage3_search_mac is None:
-        args.stage3_search_mac = True
+    if args.stage3_mac is None:
+        args.stage3_mac = True
+    if args.stage3_harvester is None:
+        args.stage3_harvester = True
 
     return args
 
@@ -3890,7 +3900,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         domains = set()
     all_domains: Set[str] = set(domains)
 
-    stage_three_tools: List[str] = ["theHarvester"]
+    stage_three_tools: List[str] = []
+    if args.stage3_harvester:
+        stage_three_tools.append("theHarvester")
     if args.stage3_dns:
         stage_three_tools.append("DNS enumeration")
     if args.stage3_banners:
@@ -3903,20 +3915,23 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         stage_three_tools.append("Shodan")
     elif args.stage3_shodan:
         stage_three_tools.append("Shodan (pending API key)")
-    if args.stage3_search_mac:
+    if args.stage3_mac:
         stage_three_tools.append("MAC address enrichment")
 
     if not stage_three_tools:
-        tools_phrase = "OSINT enrichment"
+        tools_phrase = "no enabled Stage 3 tools"
     elif len(stage_three_tools) == 1:
         tools_phrase = stage_three_tools[0]
     else:
         tools_phrase = ", ".join(stage_three_tools[:-1]) + f" and {stage_three_tools[-1]}"
 
-    stage_three_summary = (
-        f"Gathering OSINT with {tools_phrase} for "
-        f"{len(domains)} domain(s) linked to discovered assets."
-    )
+    if stage_three_tools:
+        stage_three_summary = (
+            f"Gathering OSINT with {tools_phrase} for "
+            f"{len(domains)} domain(s) linked to discovered assets."
+        )
+    else:
+        stage_three_summary = "OSINT enrichment skipped – no stage 3 tools enabled."
     echo_stage(3, "OSINT enrichment", summary=stage_three_summary)
 
     stage_three_inputs = [(domain,) for domain in sorted(domains)]
@@ -3929,7 +3944,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         scanned_targets.add(_normalise_target(ip))
     not_processed_related: Set[str] = set()
 
-    if not domains:
+    if not args.stage3_harvester:
+        echo("[!] Stage 3 – theHarvester disabled via flag; skipping execution.", essential=True)
+    elif not domains:
         echo("[!] No domains discovered in Nmap XML – skipping theHarvester stage.", essential=True)
     else:
         pending_domains = set(domains)
@@ -4175,7 +4192,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
         run_shodan_lookups(sorted(shodan_candidates), args.shodan_api_key)
 
-    if args.stage3_search_mac:
+    if args.stage3_mac:
         run_mac_address_search()
 
     export_not_processed_targets(not_processed_related)
