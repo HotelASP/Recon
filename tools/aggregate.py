@@ -32,6 +32,7 @@ The script prints the paths of the generated files upon completion.
 """
 
 import argparse
+import copy
 import csv
 import ipaddress
 import json
@@ -39,9 +40,10 @@ import os
 import re
 import shlex
 import xml.etree.ElementTree as ET
+from collections import defaultdict
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional, Sequence
+from typing import Any, DefaultDict, Dict, Iterable, List, Mapping, NamedTuple, Optional, Sequence, Set, Tuple
 
 try:  # pragma: no cover - runtime dependency for script execution
     from .ownership import ensure_path_owner
@@ -1321,6 +1323,7 @@ def build_inventory(
     """Merge the tool-specific outputs into a unified inventory structure."""
 
     inventory: Dict[str, Dict[str, Optional[Iterable]]] = {}
+    domain_to_hosts: DefaultDict[str, Set[str]] = defaultdict(set)
 
     def _ensure_host_entry(ip: str) -> Dict[str, Optional[Iterable]]:
         return inventory.setdefault(
@@ -1336,6 +1339,24 @@ def build_inventory(
                 "related_domains": [],
             },
         )
+
+    def _record_domain_host_association(domain_lower: str, ip: Optional[str]) -> None:
+        if not domain_lower or not ip:
+            return
+        domain_to_hosts[domain_lower].add(ip)
+
+    def _assign_domain_enrichment(domain_lower: str, key: str, value: Mapping[str, Any]) -> None:
+        if not domain_lower or not isinstance(value, Mapping):
+            return
+        hosts = domain_to_hosts.get(domain_lower)
+        if not hosts:
+            return
+        for host_ip in sorted(hosts):
+            entry = _ensure_host_entry(host_ip)
+            enrichment = entry.setdefault("enrichment", {})
+            domains_section = enrichment.setdefault("domains", {})
+            domain_entry = domains_section.setdefault(domain_lower, {})
+            domain_entry[key] = copy.deepcopy(value)
 
     # Start with Nmap results because they provide the richest context (ports,
     # services, hostnames, and OS detection).
@@ -1498,6 +1519,7 @@ def build_inventory(
     domain_summaries: Dict[str, Dict[str, Any]] = {}
 
     def _ensure_domain_summary(domain_lower: str) -> Dict[str, Any]:
+        domain_to_hosts.setdefault(domain_lower, set())
         return domain_summaries.setdefault(
             domain_lower,
             {
@@ -1588,6 +1610,7 @@ def build_inventory(
             related = entry.setdefault("related_domains", [])
             if domain_lower not in related:
                 related.append(domain_lower)
+            _record_domain_host_association(domain_lower, target_ip)
 
             harv_entry = entry.setdefault("harvester", {})
             domains_list = harv_entry.setdefault("domains", [])
@@ -1621,26 +1644,58 @@ def build_inventory(
                         related = host_entry.setdefault("related_domains", [])
                         if domain_lower not in related:
                             related.append(domain_lower)
+                        _record_domain_host_association(domain_lower, normalised)
+        _assign_domain_enrichment(domain_lower, "dns_records", info)
 
     for domain_lower, info in banner_inv.items():
         summary = _ensure_domain_summary(domain_lower)
         enrichment = summary.setdefault("enrichment", {})
         enrichment["banners"] = info
+        _assign_domain_enrichment(domain_lower, "banners", info)
 
     for domain_lower, info in whois_inv.items():
         summary = _ensure_domain_summary(domain_lower)
         enrichment = summary.setdefault("enrichment", {})
         enrichment["whois"] = info
+        _assign_domain_enrichment(domain_lower, "whois", info)
 
     for domain_lower, info in ct_inv.items():
         summary = _ensure_domain_summary(domain_lower)
         enrichment = summary.setdefault("enrichment", {})
         enrichment["certificate_transparency"] = info
+        _assign_domain_enrichment(domain_lower, "certificate_transparency", info)
 
     for domain_lower, info in mac_inv.items():
         summary = _ensure_domain_summary(domain_lower)
         enrichment = summary.setdefault("enrichment", {})
         enrichment["mac_addresses"] = info
+        context = info.get("context") if isinstance(info, Mapping) else None
+        if isinstance(context, Mapping):
+            ips = context.get("ips")
+            if isinstance(ips, list):
+                for item in ips:
+                    try:
+                        normalised_ip = str(ipaddress.ip_address(str(item).strip()))
+                    except ValueError:
+                        continue
+                    _ensure_host_entry(normalised_ip)
+                    _record_domain_host_association(domain_lower, normalised_ip)
+            hosts_ctx = context.get("hosts")
+            if isinstance(hosts_ctx, list):
+                candidate_hosts = {
+                    host.strip().lower()
+                    for host in hosts_ctx
+                    if isinstance(host, str) and host.strip()
+                }
+                if candidate_hosts:
+                    for ip, entry in inventory.items():
+                        hostnames = entry.get("hostnames", [])
+                        if any(
+                            isinstance(name, str) and name.strip().lower() in candidate_hosts
+                            for name in hostnames
+                        ):
+                            _record_domain_host_association(domain_lower, ip)
+        _assign_domain_enrichment(domain_lower, "mac_addresses", info)
 
     for ip, info in shodan_inv.items():
         host_entry = _ensure_host_entry(ip)
@@ -1683,6 +1738,23 @@ def build_inventory(
             for key, values in list(harv_data.items()):
                 if isinstance(values, list):
                     harv_data[key] = sorted({value for value in values if value})
+
+        enrichment_data = entry.get("enrichment")
+        if isinstance(enrichment_data, dict):
+            domains_section = enrichment_data.get("domains")
+            if isinstance(domains_section, dict):
+                cleaned_domains: Dict[str, Dict[str, Any]] = {}
+                for domain_key, domain_info in domains_section.items():
+                    if not isinstance(domain_key, str):
+                        continue
+                    if isinstance(domain_info, Mapping):
+                        cleaned_domains[domain_key] = domain_info
+                if cleaned_domains:
+                    enrichment_data["domains"] = dict(sorted(cleaned_domains.items()))
+                else:
+                    enrichment_data.pop("domains", None)
+            if not enrichment_data:
+                entry.pop("enrichment", None)
 
     domain_summary_list: List[Dict[str, Any]] = []
     for domain_lower, summary in domain_summaries.items():
@@ -1797,6 +1869,7 @@ def export_csv(bundle: InventoryBundle, outpath: str) -> None:
                 "related_domains",
                 "harvester_data",
                 "shodan_data",
+                "enrichment_data",
             ]
         )
 
@@ -1883,6 +1956,14 @@ def export_csv(bundle: InventoryBundle, outpath: str) -> None:
                 except TypeError:
                     shodan_blob = str(shodan_data)
 
+            enrichment_blob = ""
+            enrichment_data = entry.get("enrichment")
+            if enrichment_data:
+                try:
+                    enrichment_blob = json.dumps(enrichment_data, sort_keys=True)
+                except TypeError:
+                    enrichment_blob = str(enrichment_data)
+
             writer.writerow(
                 [
                     ip,
@@ -1894,6 +1975,7 @@ def export_csv(bundle: InventoryBundle, outpath: str) -> None:
                     related_domains,
                     harvester_blob,
                     shodan_blob,
+                    enrichment_blob,
                 ]
             )
     ensure_path_owner(Path(outpath))
