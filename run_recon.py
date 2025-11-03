@@ -621,6 +621,38 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--nmap-max-retries",
+        type=int,
+        help=(
+            "Set Nmap's --max-retries value for both discovery and fingerprinting "
+            "stages."
+        ),
+    )
+    parser.add_argument(
+        "--nmap-host-timeout",
+        help=(
+            "Apply an overall --host-timeout value to Nmap discovery and "
+            "fingerprinting scans."
+        ),
+    )
+    parser.add_argument(
+        "--nmap-min-rate",
+        type=int,
+        help="Set Nmap's --min-rate to control the minimum packet rate.",
+    )
+    parser.add_argument(
+        "--nmap-max-rate",
+        type=int,
+        help="Set Nmap's --max-rate to cap the packet rate during scans.",
+    )
+    parser.add_argument(
+        "--nmap-scan-delay",
+        help=(
+            "Provide a value for Nmap's --scan-delay option to space probe "
+            "packets."
+        ),
+    )
+    parser.add_argument(
         "--smrib-path",
         default=os.environ.get("SMRIB_PATH", DEFAULT_SMRIB_PATH),
         help="Location of smrib.py when using the smrib discovery option.",
@@ -827,6 +859,22 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
         args.harvester_sources = ",".join(sources)
 
+    if args.nmap_max_retries is not None and args.nmap_max_retries < 0:
+        raise SystemExit("--nmap-max-retries must be zero or a positive integer")
+
+    if args.nmap_min_rate is not None and args.nmap_min_rate <= 0:
+        raise SystemExit("--nmap-min-rate must be a positive integer")
+
+    if args.nmap_max_rate is not None and args.nmap_max_rate <= 0:
+        raise SystemExit("--nmap-max-rate must be a positive integer")
+
+    if (
+        args.nmap_min_rate is not None
+        and args.nmap_max_rate is not None
+        and args.nmap_min_rate > args.nmap_max_rate
+    ):
+        raise SystemExit("--nmap-min-rate cannot exceed --nmap-max-rate")
+
     if args.smrib_parameters:
         extras: List[str] = []
         for entry in args.smrib_parameters:
@@ -934,6 +982,29 @@ def build_port_selection(args: argparse.Namespace) -> PortSelection:
         nmap_args = ["-p", "1-65535"]
         smrib_args = ["--ports", "1-65535"]
     return PortSelection(description, masscan_args, nmap_args, smrib_args)
+
+
+def build_nmap_tuning_args(args: argparse.Namespace) -> List[str]:
+    """Translate CLI tuning options into Nmap command arguments."""
+
+    tuning: List[str] = []
+
+    if args.nmap_max_retries is not None:
+        tuning.extend(["--max-retries", str(args.nmap_max_retries)])
+
+    if args.nmap_host_timeout:
+        tuning.extend(["--host-timeout", args.nmap_host_timeout])
+
+    if args.nmap_min_rate is not None:
+        tuning.extend(["--min-rate", str(args.nmap_min_rate)])
+
+    if args.nmap_max_rate is not None:
+        tuning.extend(["--max-rate", str(args.nmap_max_rate)])
+
+    if args.nmap_scan_delay:
+        tuning.extend(["--scan-delay", args.nmap_scan_delay])
+
+    return tuning
 
 
 def _parse_port_list(port_text: str) -> List[int]:
@@ -1293,6 +1364,7 @@ def run_nmap_discovery(
     targets: Sequence[str],
     port_selection: PortSelection,
     use_sudo: bool,
+    tuning_args: Sequence[str] = (),
 ) -> Mapping[str, Set[int]]:
     # Use Nmap for the discovery phase when Masscan or smrib.py are not
     # requested, saving greppable output per target for later parsing.
@@ -1316,6 +1388,8 @@ def run_nmap_discovery(
             str(outbase),
         ]
         cmd.extend(port_selection.nmap_args)
+        if tuning_args:
+            cmd.extend(tuning_args)
         cmd.append(target)
         port_summary = port_selection.description
         description = (
@@ -1402,6 +1476,7 @@ def display_discovered_hosts(
 def run_nmap_fingerprinting(
     hosts: Mapping[str, Set[int]],
     use_sudo: bool,
+    tuning_args: Sequence[str] = (),
 ) -> None:
     # Perform comprehensive service detection with Nmap using only the
     # host/port combinations identified during discovery.
@@ -1441,6 +1516,8 @@ def run_nmap_fingerprinting(
             )
         else:
             port_scope = "no discovered ports"
+        if tuning_args:
+            cmd.extend(tuning_args)
         cmd.append(target)
         description = (
             f"Nmap fingerprinting for {target} – SYN scan with default, banner, and vuln scripts "
@@ -2453,6 +2530,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     echo("[+] Starting reconnaissance workflow", essential=True)
     port_selection = build_port_selection(args)
+    nmap_tuning_args = build_nmap_tuning_args(args)
     cli_targets = [_split_target_and_ports(entry) for entry in args.targets]
     file_targets: List[TargetDefinition] = []
     file_origin: Optional[Path] = None
@@ -2573,7 +2651,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             )
             _merge_result_maps(smrib_results, results)
         else:
-            results = run_nmap_discovery(subset, selection, use_sudo)
+            results = run_nmap_discovery(subset, selection, use_sudo, nmap_tuning_args)
             _merge_result_maps(nmap_results, results)
 
     if not discovery_descriptions:
@@ -2624,7 +2702,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     pretty_print_stage_inputs("Stage 2 – fingerprinting", stage_two_inputs)
 
     if args.stage2_use_nmap:
-        run_nmap_fingerprinting(discovered_hosts, use_sudo)
+        run_nmap_fingerprinting(discovered_hosts, use_sudo, nmap_tuning_args)
     if args.stage2_use_nikto:
         run_nikto_scans(discovered_hosts, use_sudo)
 
@@ -2784,12 +2862,17 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     f"[+] Fingerprinting {len(resolved_targets)} host(s) discovered via OSINT",
                     essential=True,
                 )
-                discovery_subset = run_nmap_discovery(resolved_targets, port_selection, use_sudo)
+                discovery_subset = run_nmap_discovery(
+                    resolved_targets,
+                    port_selection,
+                    use_sudo,
+                    nmap_tuning_args,
+                )
                 for host, ports in discovery_subset.items():
                     discovered_hosts.setdefault(host, set()).update(ports)
                     _note_known_ip(host)
                 display_discovered_hosts(discovery_subset)
-                run_nmap_fingerprinting(discovery_subset, use_sudo)
+                run_nmap_fingerprinting(discovery_subset, use_sudo, nmap_tuning_args)
                 for candidate in resolved_targets:
                     scanned_targets.add(_normalise_target(candidate))
                 for host in discovery_subset:
