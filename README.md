@@ -124,7 +124,7 @@ Both switches print the same detailed usage summary.
     --scanner smrib \
     --targets-file targets.txt \
     --search-related-data \
-    --harvester-sources 'crtsh,bing'
+    --harvester-sources 'crtsh,otx,threatcrowd'
   ```
 
 - **Follow-up run against newly observed services** – export the refreshed
@@ -153,9 +153,9 @@ Both switches print the same detailed usage summary.
 | `--smrib-parameters ...` | Extra arguments forwarded verbatim to `smrib.py` (everything after the flag is passed through). | `--smrib-parameters -- --timeout 3 --delay 0.5` |
 | `--stage2-use-nmap BOOL` | Enable or disable Nmap during stage 2 fingerprinting (default: true). | `--stage2-use-nmap false` |
 | `--stage2-use-nikto BOOL` | Enable or disable Nikto during stage 2 fingerprinting (default: true). | `--stage2-use-nikto false` |
-| `--harvester-sources SOURCES` | Comma-separated list of theHarvester backends (default: `all`). | `--harvester-sources crtsh,bing` |
+| `--harvester-sources SOURCES` | Comma-separated list of theHarvester backends (default: `anubisdb,bufferoverun,crtsh,dnsdumpster,hackertarget,otx,rapiddns,threatcrowd,urlscan`). | `--harvester-sources crtsh,otx,threatcrowd` |
 | `--harvester-source SOURCE` | Repeatable alternative to `--harvester-sources` for per-source control. | `--harvester-source crtsh --harvester-source urlscan` |
-| `--harvester-limit N` | Result limit per source for theHarvester queries (default: `500`). | `--harvester-limit 150` |
+| `--harvester-limit N` | Result limit per source for theHarvester queries (default: `200`). | `--harvester-limit 150` |
 | `--search-related-data` | Re-query Nmap and theHarvester for newly discovered hosts/domains (up to three rounds). | `--search-related-data` |
 | `--skip-eyewitness` | Skip the EyeWitness screenshot stage entirely. | `--skip-eyewitness` |
 | `--eyewitness-timeout SECONDS` | HTTP timeout for EyeWitness requests (default: `10`). | `--eyewitness-timeout 20` |
