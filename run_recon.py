@@ -75,6 +75,18 @@ TARGETS_NEW_FILE = ROOT / "targets_new.txt"
 # the OSINT enrichment stage so the operator can review them manually later.
 TARGETS_NOT_PROCESSED_FILE = ROOT / "targets_related_not_processed.txt"
 
+DEFAULT_HARVESTER_SOURCES: Tuple[str, ...] = (
+    "anubisdb",
+    "bufferoverun",
+    "crtsh",
+    "dnsdumpster",
+    "hackertarget",
+    "otx",
+    "rapiddns",
+    "threatcrowd",
+    "urlscan",
+)
+
 SCANNER_REPO_URLS = (
     "https://github.com/HotelASP/Scanner/archive/refs/heads/main.zip",
     "https://github.com/HotelASP/Scanner/archive/refs/heads/master.zip",
@@ -624,8 +636,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--harvester-sources",
-        default="all",
-        help="Comma separated sources for theHarvester (default: all).",
+        default=",".join(DEFAULT_HARVESTER_SOURCES),
+        help=(
+            "Comma separated sources for theHarvester. Defaults to a curated set "
+            "that avoids API-key-only providers and aggressive rate limiting."
+        ),
     )
     parser.add_argument(
         "--harvester-source",
@@ -639,8 +654,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--harvester-limit",
         type=int,
-        default=500,
-        help="Result limit for theHarvester queries (default: 500).",
+        default=200,
+        help="Result limit for theHarvester queries (default: 200).",
     )
     parser.add_argument(
         "--stage2-use-nmap",
@@ -796,10 +811,15 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
     if args.harvester_source:
         sources: List[str] = []
+        seen_sources: Set[str] = set()
         for entry in args.harvester_source:
             for part in entry.split(","):
                 cleaned = part.strip()
                 if cleaned:
+                    lowered = cleaned.lower()
+                    if lowered in seen_sources:
+                        continue
+                    seen_sources.add(lowered)
                     sources.append(cleaned)
 
         if not sources:
