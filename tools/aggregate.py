@@ -1124,6 +1124,99 @@ def parse_ct_dir(path: str) -> Dict[str, Dict[str, Any]]:
     return results
 
 
+def parse_mac_dir(path: str) -> Dict[str, Dict[str, Any]]:
+    results: Dict[str, Dict[str, Any]] = {}
+    directory = Path(path)
+    if not directory.is_dir():
+        return results
+
+    for candidate in directory.iterdir():
+        if candidate.is_dir():
+            continue
+        data = _load_json_file(candidate)
+        if not data:
+            continue
+
+        domain = data.get("domain") or candidate.stem
+        if not isinstance(domain, str):
+            continue
+        domain_lower = domain.strip().lower()
+        if not domain_lower:
+            continue
+
+        payload: Dict[str, Any] = {}
+        addresses = data.get("mac_addresses")
+        if isinstance(addresses, list):
+            cleaned_addresses: List[Dict[str, Any]] = []
+            for entry in addresses:
+                if not isinstance(entry, Mapping):
+                    continue
+                record: Dict[str, Any] = {}
+                address = entry.get("address") or entry.get("mac_address")
+                if isinstance(address, str) and address.strip():
+                    record["address"] = address.strip().upper()
+                else:
+                    continue
+                vendor = entry.get("vendor")
+                if isinstance(vendor, str) and vendor.strip():
+                    record["vendor"] = vendor.strip()
+                occurrences = entry.get("occurrences")
+                if isinstance(occurrences, list):
+                    cleaned_occurrences: List[Dict[str, Any]] = []
+                    for occ in occurrences:
+                        if not isinstance(occ, Mapping):
+                            continue
+                        occ_entry: Dict[str, Any] = {}
+                        for key in ("source", "file", "path", "value", "line", "match"):
+                            value = occ.get(key)
+                            if isinstance(value, str) and value.strip():
+                                occ_entry[key] = value.strip()
+                        lineno = occ.get("lineno")
+                        if isinstance(lineno, int):
+                            occ_entry["lineno"] = lineno
+                        elif isinstance(lineno, str) and lineno.strip().isdigit():
+                            occ_entry["lineno"] = int(lineno.strip())
+                        if occ_entry:
+                            cleaned_occurrences.append(occ_entry)
+                    if cleaned_occurrences:
+                        record["occurrences"] = cleaned_occurrences
+                cleaned_addresses.append(record)
+            if cleaned_addresses:
+                payload["mac_addresses"] = cleaned_addresses
+
+        context = data.get("context")
+        if isinstance(context, Mapping) and context:
+            context_payload: Dict[str, Any] = {}
+            hosts = context.get("hosts")
+            if isinstance(hosts, list) and hosts:
+                context_payload["hosts"] = [str(host) for host in hosts if host]
+            ips = context.get("ips")
+            if isinstance(ips, list) and ips:
+                context_payload["ips"] = [str(ip) for ip in ips if ip]
+            sections = context.get("sections")
+            if isinstance(sections, Mapping):
+                section_payload: Dict[str, List[str]] = {}
+                for key, values in sections.items():
+                    if not isinstance(key, str) or not isinstance(values, list):
+                        continue
+                    cleaned_values = [str(value) for value in values if value]
+                    if cleaned_values:
+                        section_payload[key] = cleaned_values
+                if section_payload:
+                    context_payload["sections"] = section_payload
+            if context_payload:
+                payload["context"] = context_payload
+
+        timestamp = data.get("timestamp")
+        if isinstance(timestamp, str) and timestamp.strip():
+            payload["timestamp"] = timestamp.strip()
+
+        if payload:
+            results[domain_lower] = payload
+
+    return results
+
+
 def parse_shodan_dir(path: str) -> Dict[str, Dict[str, Any]]:
     results: Dict[str, Dict[str, Any]] = {}
     directory = Path(path)
@@ -1222,6 +1315,7 @@ def build_inventory(
     banner_inv: Dict[str, Dict[str, Any]],
     whois_inv: Dict[str, Dict[str, Any]],
     ct_inv: Dict[str, Dict[str, Any]],
+    mac_inv: Dict[str, Dict[str, Any]],
     shodan_inv: Dict[str, Dict[str, Any]],
 ) -> InventoryBundle:
     """Merge the tool-specific outputs into a unified inventory structure."""
@@ -1543,6 +1637,11 @@ def build_inventory(
         enrichment = summary.setdefault("enrichment", {})
         enrichment["certificate_transparency"] = info
 
+    for domain_lower, info in mac_inv.items():
+        summary = _ensure_domain_summary(domain_lower)
+        enrichment = summary.setdefault("enrichment", {})
+        enrichment["mac_addresses"] = info
+
     for ip, info in shodan_inv.items():
         host_entry = _ensure_host_entry(ip)
         shodan_entry = host_entry.setdefault("shodan", {})
@@ -1847,6 +1946,11 @@ def main() -> None:
         help="Directory containing certificate transparency lookup JSON files.",
     )
     parser.add_argument(
+        "--mac-dir",
+        default="out/mac",
+        help="Directory containing MAC address enrichment JSON files.",
+    )
+    parser.add_argument(
         "--shodan-dir",
         default="out/shodan",
         help="Directory containing Shodan lookup JSON files.",
@@ -1873,6 +1977,7 @@ def main() -> None:
     banner_results = parse_banner_dir(args.banner_dir)
     whois_results = parse_whois_dir(args.whois_dir)
     ct_results = parse_ct_dir(args.ct_dir)
+    mac_results = parse_mac_dir(args.mac_dir)
     shodan_results = parse_shodan_dir(args.shodan_dir)
 
     bundle = build_inventory(
@@ -1885,6 +1990,7 @@ def main() -> None:
         banner_results,
         whois_results,
         ct_results,
+        mac_results,
         shodan_results,
     )
 

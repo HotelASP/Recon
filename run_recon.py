@@ -70,6 +70,7 @@ BANNER_DIR = OUT_DIR / "banners"
 WHOIS_DIR = OUT_DIR / "whois"
 CT_DIR = OUT_DIR / "certificate_transparency"
 SHODAN_DIR = OUT_DIR / "shodan"
+MAC_DIR = OUT_DIR / "mac"
 LOG_DIR = OUT_DIR / "log"
 MASSCAN_JSON = MASSCAN_DIR / "masscan.json"
 SMRIB_JSON = SMRIB_DIR / "smrib.json"
@@ -750,6 +751,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="API key used for Shodan lookups during stage 3 (defaults to SHODAN_API_KEY env var).",
     )
     parser.add_argument(
+        "--search-mac",
+        "--stage3-search-mac",
+        dest="stage3_search_mac",
+        nargs="?",
+        const="true",
+        type=_parse_boolean_option,
+        metavar="BOOL",
+        help=(
+            "Enable or disable MAC address enrichment during stage 3 (default: true)."
+        ),
+    )
+    parser.add_argument(
         "--search-related-data",
         action="store_true",
         help=(
@@ -947,6 +960,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         args.stage3_ct = True
     if args.stage3_shodan is None:
         args.stage3_shodan = True
+    if args.stage3_search_mac is None:
+        args.stage3_search_mac = True
 
     return args
 
@@ -1972,6 +1987,321 @@ def _write_enrichment_file(directory: Path, label: str, payload: Mapping[str, ob
     ensure_path_owner(path)
 
 
+_MAC_CANDIDATE_PATTERNS = (
+    re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b"),
+    re.compile(r"\b[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\b"),
+    re.compile(r"\b[0-9A-Fa-f]{12}\b"),
+)
+_MAC_VENDOR_PATHS: Tuple[Path, ...] = (
+    Path("/usr/share/nmap/nmap-mac-prefixes"),
+    Path("/usr/share/ieee-data/oui.txt"),
+    Path("/usr/share/misc/oui.txt"),
+    Path("/var/lib/ieee-data/oui.txt"),
+)
+_MAC_VENDOR_CACHE: Optional[Dict[str, str]] = None
+
+
+def _normalise_mac_address(value: str) -> Optional[str]:
+    cleaned = re.sub(r"[^0-9A-Fa-f]", "", value)
+    if len(cleaned) != 12:
+        return None
+    grouped = [cleaned[i : i + 2] for i in range(0, 12, 2)]
+    return ":".join(group.upper() for group in grouped)
+
+
+def _parse_mac_vendor_file(path: Path) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith(("#", ";", "//")):
+                    continue
+                match = None
+                for pattern in _MAC_CANDIDATE_PATTERNS:
+                    match = pattern.search(line)
+                    if match:
+                        break
+                if not match:
+                    continue
+                prefix = _normalise_mac_address(match.group(0))
+                if not prefix:
+                    continue
+                prefix_key = prefix.replace(":", "")
+                remainder = line[match.end() :].strip()
+                remainder = re.sub(r"^(?:\(hex\)|\(base 16\))", "", remainder, flags=re.IGNORECASE).strip(
+                    " \t-"
+                )
+                if not remainder:
+                    continue
+                mapping.setdefault(prefix_key.upper(), remainder)
+    except OSError:
+        return {}
+    return mapping
+
+
+def _load_mac_vendor_mapping() -> Dict[str, str]:
+    global _MAC_VENDOR_CACHE
+    if _MAC_VENDOR_CACHE is not None:
+        return _MAC_VENDOR_CACHE
+
+    mapping: Dict[str, str] = {}
+    custom_path = os.environ.get("OUI_DATABASE")
+    if custom_path:
+        candidate = Path(custom_path).expanduser()
+        mapping.update(_parse_mac_vendor_file(candidate))
+
+    for candidate in _MAC_VENDOR_PATHS:
+        if candidate.is_file():
+            for key, value in _parse_mac_vendor_file(candidate).items():
+                mapping.setdefault(key, value)
+
+    _MAC_VENDOR_CACHE = mapping
+    return mapping
+
+
+def _lookup_mac_vendor(mac_address: str, vendor_map: Mapping[str, str]) -> Optional[str]:
+    prefix = mac_address.replace(":", "").upper()[:6]
+    return vendor_map.get(prefix)
+
+
+def _extract_mac_candidates_from_json(
+    node: object, path: str = ""
+) -> List[Tuple[str, Dict[str, object]]]:
+    results: List[Tuple[str, Dict[str, object]]] = []
+    if isinstance(node, Mapping):
+        for key, value in node.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            results.extend(_extract_mac_candidates_from_json(value, child_path))
+    elif isinstance(node, (list, tuple, set)):
+        for index, value in enumerate(node):
+            child_path = f"{path}[{index}]" if path else f"[{index}]"
+            results.extend(_extract_mac_candidates_from_json(value, child_path))
+    elif isinstance(node, str):
+        seen: Set[str] = set()
+        for pattern in _MAC_CANDIDATE_PATTERNS:
+            for match in pattern.finditer(node):
+                candidate = match.group(0)
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                results.append(
+                    (
+                        candidate,
+                        {
+                            "match": candidate,
+                            "value": node,
+                            "path": path or "value",
+                        },
+                    )
+                )
+    return results
+
+
+def _extract_mac_candidates_from_text(text: str) -> List[Tuple[str, Dict[str, object]]]:
+    results: List[Tuple[str, Dict[str, object]]] = []
+    for lineno, raw_line in enumerate(text.splitlines(), start=1):
+        seen: Set[str] = set()
+        for pattern in _MAC_CANDIDATE_PATTERNS:
+            for match in pattern.finditer(raw_line):
+                candidate = match.group(0)
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                results.append(
+                    (
+                        candidate,
+                        {
+                            "match": candidate,
+                            "value": raw_line.strip(),
+                            "line": raw_line.strip(),
+                            "lineno": lineno,
+                        },
+                    )
+                )
+    return results
+
+
+def _resolve_domain_from_harvester_content(data: object, fallback: str) -> str:
+    if isinstance(data, Mapping):
+        for key in getattr(aggregate, "HARVESTER_DOMAIN_KEYS", ("domain", "target", "dns_domain", "query", "search")):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, Mapping):
+                derived = _resolve_domain_from_harvester_content(value, fallback)
+                if derived:
+                    return derived
+        cmd_value = data.get("cmd")
+        if isinstance(cmd_value, str):
+            match = re.search(r"-d\s+([A-Za-z0-9_.-]+)", cmd_value)
+            if match:
+                return match.group(1)
+        nested = data.get("data")
+        if isinstance(nested, (Mapping, list)):
+            derived = _resolve_domain_from_harvester_content(nested, fallback)
+            if derived:
+                return derived
+    elif isinstance(data, list):
+        for item in data:
+            derived = _resolve_domain_from_harvester_content(item, fallback)
+            if derived:
+                return derived
+    return fallback
+
+
+def _summarise_harvester_domain(
+    result: aggregate.HarvesterDomainResult,
+) -> Mapping[str, object]:
+    summary: Dict[str, object] = {}
+    hosts = sorted({finding.hostname for finding in result.findings if finding.hostname})
+    ips = sorted({finding.ip for finding in result.findings if finding.ip})
+    if hosts:
+        summary["hosts"] = hosts
+    if ips:
+        summary["ips"] = ips
+    sections: Dict[str, List[str]] = {}
+    for key, values in result.sections.items():
+        cleaned = sorted({value for value in values if value})
+        if cleaned:
+            sections[key] = cleaned
+    if sections:
+        summary["sections"] = sections
+    return summary
+
+
+def run_mac_address_search() -> None:
+    if not HARVESTER_DIR.is_dir():
+        echo(
+            "[!] Stage 3 – MAC address enrichment skipped because no theHarvester artefacts were generated.",
+            essential=True,
+        )
+        return
+
+    echo("[+] Stage 3 – scanning OSINT artefacts for MAC addresses", essential=True)
+
+    vendor_map = _load_mac_vendor_mapping()
+    harvester_results = aggregate.parse_harvester_dir(str(HARVESTER_DIR))
+    harvester_context: Dict[str, Mapping[str, object]] = {
+        domain.lower(): _summarise_harvester_domain(result)
+        for domain, result in harvester_results.items()
+        if isinstance(domain, str)
+    }
+
+    domains_with_hits = 0
+    unique_addresses = 0
+    total_occurrences = 0
+
+    for candidate in sorted(HARVESTER_DIR.iterdir()):
+        if candidate.is_dir():
+            continue
+        try:
+            raw_text = candidate.read_text(encoding="utf-8", errors="ignore")
+        except OSError as exc:
+            echo(f"[!] Unable to read {candidate}: {exc}", essential=True)
+            continue
+
+        try:
+            payload = json.loads(raw_text)
+        except json.JSONDecodeError:
+            payload = None
+
+        domain_hint = candidate.stem
+        if isinstance(payload, (Mapping, list)):
+            domain_value = _resolve_domain_from_harvester_content(payload, domain_hint)
+        else:
+            domain_value = domain_hint
+
+        domain_clean = (domain_value or domain_hint or "").strip()
+        if not domain_clean:
+            domain_clean = domain_hint or "entry"
+        domain_lower = domain_clean.lower()
+
+        contexts = []
+        if isinstance(payload, (Mapping, list)):
+            contexts.extend(_extract_mac_candidates_from_json(payload))
+        contexts.extend(_extract_mac_candidates_from_text(raw_text))
+
+        aggregated: Dict[str, Dict[str, object]] = {}
+        seen_occurrences: Set[Tuple[object, ...]] = set()
+
+        for raw_value, context in contexts:
+            normalised = _normalise_mac_address(raw_value)
+            if not normalised:
+                continue
+
+            mac_entry = aggregated.setdefault(
+                normalised,
+                {
+                    "address": normalised,
+                    "vendor": _lookup_mac_vendor(normalised, vendor_map),
+                    "occurrences": [],
+                },
+            )
+
+            try:
+                relative_path = candidate.relative_to(ROOT)
+            except ValueError:
+                relative_path = candidate
+
+            occurrence: Dict[str, object] = {
+                "source": "harvester",
+                "file": str(relative_path),
+                "match": context.get("match") or raw_value,
+            }
+
+            if "path" in context:
+                occurrence["path"] = context["path"]
+            if "value" in context:
+                occurrence["value"] = context["value"]
+            if "line" in context:
+                occurrence["line"] = context["line"]
+            if "lineno" in context:
+                occurrence["lineno"] = context["lineno"]
+
+            occurrence_key = (
+                occurrence.get("file"),
+                occurrence.get("path"),
+                occurrence.get("lineno"),
+                occurrence.get("line"),
+                occurrence.get("match"),
+            )
+            if occurrence_key in seen_occurrences:
+                continue
+            seen_occurrences.add(occurrence_key)
+            mac_entry.setdefault("occurrences", []).append(occurrence)
+
+        if not aggregated:
+            continue
+
+        mac_entries = sorted(aggregated.values(), key=lambda item: item.get("address", ""))
+        payload_out: Dict[str, object] = {
+            "domain": domain_clean,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mac_addresses": mac_entries,
+        }
+
+        context_snapshot = harvester_context.get(domain_lower)
+        if context_snapshot:
+            payload_out["context"] = context_snapshot
+
+        _write_enrichment_file(MAC_DIR, domain_clean, payload_out)
+
+        domains_with_hits += 1
+        unique_addresses += len(mac_entries)
+        total_occurrences += sum(len(entry.get("occurrences", [])) for entry in mac_entries)
+
+    if domains_with_hits:
+        ensure_tree_owner(MAC_DIR)
+        message = (
+            f"[+] Stage 3 – recorded {unique_addresses} unique MAC address(es) across "
+            f"{domains_with_hits} domain artefact(s) ({total_occurrences} evidence entries)"
+        )
+        echo(message, essential=True)
+    else:
+        echo("[!] Stage 3 – no MAC addresses found in theHarvester artefacts.", essential=True)
+
+
 def _run_dns_command(cmd: Sequence[str]) -> Tuple[Optional[str], Optional[str]]:
     try:
         result = subprocess.run(
@@ -2514,6 +2844,8 @@ def aggregate_results() -> None:
         str(CT_DIR),
         "--shodan-dir",
         str(SHODAN_DIR),
+        "--mac-dir",
+        str(MAC_DIR),
         "--out-json",
         str(INVENTORY_JSON),
         "--out-csv",
@@ -3287,6 +3619,24 @@ def write_report(
                         ]
                         if names:
                             lines.append(f"- **Certificate names**: {', '.join(names)}")
+                mac_info = enrichment.get("mac_addresses") if isinstance(enrichment, Mapping) else None
+                if isinstance(mac_info, Mapping):
+                    addresses = mac_info.get("mac_addresses")
+                    if isinstance(addresses, list) and addresses:
+                        samples: List[str] = []
+                        for entry in addresses[:5]:
+                            if not isinstance(entry, Mapping):
+                                continue
+                            address = entry.get("address") or entry.get("mac_address")
+                            vendor = entry.get("vendor")
+                            if not address:
+                                continue
+                            if isinstance(vendor, str) and vendor.strip():
+                                samples.append(f"{address} ({vendor.strip()})")
+                            else:
+                                samples.append(str(address))
+                        if samples:
+                            lines.append(f"- **MAC addresses**: {', '.join(samples)}")
             lines.append("")
 
     lines.append("")
@@ -3553,6 +3903,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         stage_three_tools.append("Shodan")
     elif args.stage3_shodan:
         stage_three_tools.append("Shodan (pending API key)")
+    if args.stage3_search_mac:
+        stage_three_tools.append("MAC address enrichment")
 
     if not stage_three_tools:
         tools_phrase = "OSINT enrichment"
@@ -3822,6 +4174,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                                 shodan_candidates.add(ip_normalised)
 
         run_shodan_lookups(sorted(shodan_candidates), args.shodan_api_key)
+
+    if args.stage3_search_mac:
+        run_mac_address_search()
 
     export_not_processed_targets(not_processed_related)
 
